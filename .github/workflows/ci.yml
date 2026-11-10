@@ -3,7 +3,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_call:
 permissions:
   contents: read
 concurrency:
@@ -12,7 +11,7 @@ concurrency:
 jobs:
   verify:
     runs-on: xcode-27
-    timeout-minutes: 45
+    timeout-minutes: 30
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
     steps:
@@ -25,49 +24,12 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.3
         with:
           version: 0.13.7
-      - name: Secret scan
-        run: gitleaks git . --log-opts=--all --redact
-      - name: Toolchain
-        run: swift Scripts/Tatara.swift toolchain
-      - name: Toolchain contract
-        run: swift Scripts/Tests/Toolchain.swift
-      - name: Resolve locked packages
-        run: swift Scripts/Tatara.swift resolve --locked
-      - name: Formatting, localization and notices
-        run: swift Scripts/Tatara.swift lint
-      - name: Test
-        run: swift Scripts/Tatara.swift test
-      - name: Build production runtime
-        run: swift Scripts/Tatara.swift build Release
-      - name: Forge loading and reduced motion
-        run: swift Scripts/Tatara.swift smoke --loading
-      - name: PTY runtime
-        run: swift Scripts/Tatara.swift smoke
-      - name: PR selection and quick picker
-        run: swift Scripts/Tatara.swift smoke --reading-workspace
-      - name: Search, scrollbar and loading responsiveness
-        run: swift Scripts/Tatara.swift smoke --workspace
-      - name: Wheel axes and sidebar scroll margins
-        run: swift Scripts/Tatara.swift smoke --wheel
-      - name: Tree, visual comments and saved filters
-        run: swift Scripts/Tatara.swift smoke --features
-      - name: Multiline editor and complete review preview
-        run: swift Scripts/Tatara.swift smoke --editors
-      - name: Source search and combined review
-        run: swift Scripts/Tatara.swift smoke --search-review
-      - name: Loaded-list search ownership
-        run: swift Scripts/Tatara.swift smoke --list-search --dense-navigation --animated
-      - name: Draft PR review entry
-        run: swift Scripts/Tatara.swift smoke --draft-review
-      - name: Pending review and comment reader
-        run: swift Scripts/Tatara.swift smoke --review-experience
-      - name: Narrow stacked workspace
-        run: swift Scripts/Tatara.swift smoke --stacked
-      - name: Large input and in-flight focus changes
-        run: swift Scripts/Tatara.swift smoke --stress
-      - uses: actions/upload-artifact@v7.0.2
-        if: always()
-        with:
-          name: validation
-          path: .artifacts/
-          include-hidden-files: true
+      - run: gitleaks git . --log-opts=--all --redact
+      - run: swift Scripts/Tatara.swift toolchain
+      - run: swift Scripts/Tatara.swift resolve
+      - run: swift Scripts/Tatara.swift localizations --check
+      - run: swift Scripts/Tatara.swift test
+      - run: swift Scripts/Tatara.swift build release
+      - run: swift Scripts/Tatara.swift nvim-test
+      - run: swift Scripts/Tatara.swift nvim-smoke
+      - run: swift Scripts/Tatara.swift lint

@@ -78,7 +78,16 @@ public struct GitHubAdapter: Sendable {
       let isDraft: Bool
       struct Author: Decodable { let login: String }
     }
-    let output = try await runner.checked("gh", ["pr", "view", "--json", "number,title,url,author,state,isDraft"])
+    let output: CommandResult
+    do {
+      output = try await runner.checked("gh", ["pr", "view", "--json", "number,title,url,author,state,isDraft"])
+    } catch let error as TataraError where error.code == .commandFailed
+      && error.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+      .wholeMatch(of: /gh: no pull requests found for branch "[^\n]+"/) != nil
+    {
+      // gh's branch finder reports a missing PR on stderr with the generic failure exit status.
+      throw TataraError(.noCurrentPullRequest)
+    }
     let value = try decode(Current.self, output.output)
     guard
       value.number > 0,
@@ -302,6 +311,7 @@ public struct GitHubAdapter: Sendable {
   public func submit(_ submission: ReviewSubmission) async throws {
     guard
       !submission.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !submission.comments.isEmpty || submission
+        .fileComment != nil || submission
         .event == .approve
     else {
       throw TataraError(.emptyReview)
@@ -312,24 +322,62 @@ public struct GitHubAdapter: Sendable {
     let payload: Data
     if submission.item.kind == .pullRequest {
       let current: PullRequestDTO = try await get(repository, "pulls/\(number)")
-      guard current.head.sha == submission.expectedHead else { throw TataraError(.revisionChanged) }
+      guard current.head.sha == submission.expectedHead else { throw TataraError(
+        .revisionChanged,
+        detail: "Reviewed head: \(submission.expectedHead ?? "unknown"). Current head: \(current.head.sha).",
+      ) }
       if let expectedBase = submission.expectedMergeBase {
         let comparison: CompareDTO = try await get(repository, "compare/\(current.base.sha)...\(current.head.sha)")
-        guard comparison.mergeBaseCommit.sha == expectedBase else { throw TataraError(.revisionChanged) }
+        guard comparison.mergeBaseCommit.sha == expectedBase else { throw TataraError(
+          .revisionChanged,
+          detail: "Reviewed merge base: \(expectedBase). Current merge base: \(comparison.mergeBaseCommit.sha).",
+        ) }
       }
       guard current.state == "open" else { throw TataraError(
         .unavailable,
         detail: "The pull request is closed.",
       ) }
-      endpoint = "pulls/\(number)/reviews"
-      payload = try JSONEncoder().encode(ReviewPayload(
-        body: submission.body,
-        event: submission.event.rawValue,
-        commitID: current.head.sha,
-        comments: submission.comments,
-      ))
+      if let comment = submission.fileComment {
+        guard
+          submission.singleComment,
+          submission.event == .comment,
+          submission.body.isEmpty,
+          submission.comments.isEmpty,
+          comment.body.utf8.count <= 65536,
+          !comment.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { throw TataraError(.invalidResponse) }
+        endpoint = "pulls/\(number)/comments"
+        payload = try JSONSerialization.data(withJSONObject: [
+          "body": comment.body,
+          "path": comment.path,
+          "subject_type": "file",
+          "commit_id": current.head.sha,
+        ])
+      } else if submission.singleComment {
+        guard submission.event == .comment, submission.body.isEmpty, submission.comments.count == 1 else {
+          throw TataraError(
+            .invalidResponse,
+            detail: "A single comment must contain exactly one inline comment and no review summary.",
+          )
+        }
+        let encoded = try JSONEncoder().encode(submission.comments[0])
+        guard var comment = try JSONSerialization.jsonObject(with: encoded) as? [String: Any] else {
+          throw TataraError(.invalidResponse, detail: "Could not encode the inline comment.")
+        }
+        comment["commit_id"] = current.head.sha
+        endpoint = "pulls/\(number)/comments"
+        payload = try JSONSerialization.data(withJSONObject: comment)
+      } else {
+        endpoint = "pulls/\(number)/reviews"
+        payload = try JSONEncoder().encode(ReviewPayload(
+          body: submission.body,
+          event: submission.event.rawValue,
+          commitID: current.head.sha,
+          comments: submission.comments,
+        ))
+      }
     } else {
-      guard submission.event == .comment, submission.comments.isEmpty else { throw TataraError(
+      guard submission.event == .comment, submission.comments.isEmpty, submission.fileComment == nil else { throw TataraError(
         .unavailable,
         detail: "Issues support comments, not pull request reviews.",
       ) }

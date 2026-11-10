@@ -1,0 +1,27 @@
+# Backend protocol
+
+`tatara serve` accepts newline-delimited JSON-RPC 2.0 on stdin and writes only protocol messages to stdout. The protocol version is `1`. Request IDs are strictly increasing positive integers; responses may arrive out of order. At most 32 requests and 16 MiB per frame are accepted. Cancel obsolete reads with `$/cancelRequest`; remote writes are not canceled or retried automatically.
+
+One connection owns one account/repository and its selected item. `initialize` accepts optional `repository`, `host`, `source` and `demo`. `open` accepts a `number` and `kind` (`pullRequest` or `issue`), or uses the current branch's PR. `pulls` accepts `kind`, `query` and `page` and returns `nextPage`. Owned requests carry the current `number` and exact `head`; issues use an empty head and have no source revision. A mismatch is visible and invalidates previews. Opening a PR returns its retained `drafts` for that immutable head.
+
+When the current branch has no PR, `open` returns `error.data.kind = "noCurrentPullRequest"`, and the editor opens the repository's PR selector. Explicit PR numbers and GitHub failures keep their own errors.
+
+`file` returns immutable before/after source, difftastic token ranges, complete one-based `diff.alignment` pairs, the first changed source location and validated detached worktree locations. Missing alignment entries mean no source on that side. Binary results identify `binary: true` and supply no text or source anchors. `checkout: false` explicitly requests source-only data. Worktree materialization does not run build setup or start language servers. The editor assembles combined diffs in forge order with at most four outstanding file requests and a 64 MiB presentation limit.
+
+`search.files` uses FFF and returns ranked paths plus UTF-16 highlight ranges. `search.preview` returns up to 300 immutable source lines. `search.files` and `search.content` accept an optional `paths` array, validated as an exact subset of changed paths; an empty array searches nothing. Content preparation caches are scoped to those paths and obsolete scopes are canceled before publication. Excluded files are not fetched or counted toward result/snapshot limits. `search.content` accepts `query` and `mode` (`plain`, `regex`, `fuzzy`); results preserve source side, line, UTF-16 column and excerpt ranges.
+
+`filters` returns built-in/saved presets and labels. `filter.save`, `filter.delete` and `filter.label` manage local presets and quoted label toggles; they do not write to GitHub.
+
+`draft.add` accepts a patch-valid inline `comment` and returns stable IDs. `draft.update` and `draft.remove` use those IDs. The session retains at most 16 PR draft sets, 128 comments per set and 8 MiB of pending bodies. `review.preview` accepts `event`, `body`, and optional `single`/`comment`. Single previews contain exactly one inline comment and no review summary or unrelated pending comments.
+
+`comment.context` returns fresh permissions, thread state, reactions and allowed actions. `comment.preview` accepts a published comment `key`, `operation`, body, optional reaction, and the reader's `expectedBody` / `expectedUpdatedAt`. An intervening edit is rejected before previewing a mutation. Previews return an opaque ID and the exact human-reviewable payload, including reaction removal versus addition. `write.confirm` consumes that ID once, verifies account and remote ownership and performs the write tied to the reviewed revision. No hidden write or automatic retry is permitted.
+
+Progress notifications have method `progress` and `{id, message}` parameters. Their request ownership must still match before presentation. They describe backend checkout/network preparation and are separate from Neovim's LSP progress and diagnostics.
+
+## Durable review state
+
+`open` and `refresh` additionally return `reviewState` and ordered `hunks`. Hunk IDs and before/after ranges come only from the forge patch. Saved state is keyed by account/repository/item kind/number/merge-base/head. `review.state` reloads it; `review.mark` accepts either a changed `path` or a known `hunk` and explicit `reviewed` boolean. `review.summary` saves `body` and `event`. Each mutation returns the fresh state. Clients may supply `mergeBase` on owned calls to reject same-head base changes. `draft.update` and `draft.remove` accept `expectedBody` to reject concurrent edits.
+
+`review.export` returns Markdown by default, or `{schema: 1, identity, review}` for `format: "json"`. Exports are local reads and confer no remote-write authority. `review.sessions` lists bounded metadata for saved revisions of the current repository/account; it does not load all comment bodies. `review.forget` takes a listed `id` and exact `updatedAt` after explicit local confirmation; a concurrent change rejects deletion.
+
+`review.preview` with `single: true` can alternatively carry `fileComment: {path, body}`. It must target a changed file, contain no line comment, and use `COMMENT`. The write preview renders the explicit file subject; the forge adapter sends `subject_type: "file"` with the exact commit ID and no invented source line. It remains separate from batched inline submissions. Saved line drafts keep stable IDs; successful batched submission removes only unchanged draft entries included in that preview, preserving edits/additions from another editor.

@@ -44,7 +44,7 @@ public actor Difftastic {
       request.file.path,
       request.file.previousPath ?? "",
       request.file.status,
-      "json:context-3:strip-cr-off",
+      "json:context-3:strip-cr-off:full-alignment-v1",
       request.revealing.map { "reveal:\($0.side.rawValue):\($0.line)" } ?? "",
       engineVersion ?? "",
     ]), as: UTF8.self)
@@ -148,6 +148,7 @@ public actor Difftastic {
         revision: request.revision,
         previousPath: file.previousPath,
         cacheIdentity: key,
+        alignment: parsed.alignment,
       )
     } else {
       document = ReviewDiff(
@@ -197,6 +198,7 @@ public actor Difftastic {
   }
 
   private func retain(_ document: ReviewDiff, for key: String, bytes: Int) {
+    let bytes = bytes + (document.alignment?.count ?? 0) * (MemoryLayout<[Int?]>.stride + 2 * MemoryLayout<Int?>.stride)
     guard bytes <= 32 * 1024 * 1024 else { return }
     if let old = renders.removeValue(forKey: key) {
       renderBytes -= old.bytes

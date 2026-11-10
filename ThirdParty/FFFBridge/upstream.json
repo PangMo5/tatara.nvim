@@ -1,0 +1,14 @@
+{
+  "repository" : "https://github.com/dmtrKovalenko/fff",
+  "revision" : "977102516557c29a1ed92fa3792384f353f652a3",
+  "rust" : "1.99.1",
+  "sha256" : "55a456a0c6c2fad7c47935b8ca4e52ff541740aca7baf42dd5874ea83cfb8055",
+  "sources" : {
+    "Native/FFFBridge/Cargo.lock" : "b9457505ae2d04e1ebb0f20bd27d607881f00eadfe062dbf1c7adf31d97f847b",
+    "Native/FFFBridge/Cargo.toml" : "a018da5a87d1cabf931462af7834f4c845cf93ddb9f179d02446f78f49c6ae56",
+    "Native/FFFBridge/include/module.modulemap" : "6905f57afb7195c21c017a3d8b50b9380c1aec47525861c58b32dae3853ebbaf",
+    "Native/FFFBridge/include/TataraFFF.h" : "650b626a0654643553fd5ad50b910742e5ccb96d94d8090dbdea5f4e951507ca",
+    "Native/FFFBridge/src/lib.rs" : "86218644dd991bf1ea87838e97fd6b3fc7ebc7c27a8f7aabbcd9cf4729887f09",
+    "Scripts/FFF.swift" : "ba6629fa45e92625e39b85b615bb8fc978f29fe0ff08ed8a23cc6cabef65f4bf"
+  }
+}

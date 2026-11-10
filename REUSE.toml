@@ -7,19 +7,19 @@ SPDX-FileCopyrightText = "2026 PangMo5 and contributors"
 SPDX-License-Identifier = "AGPL-3.0-only"
 
 [[annotations]]
-path = ["Package.resolved", "Scripts/Smoke/Package.resolved"]
+path = ["Package.resolved", "Scripts/NvimSmoke/Package.resolved", "Native/FFFBridge/Cargo.lock"]
 precedence = "override"
 SPDX-FileCopyrightText = "NONE"
 SPDX-License-Identifier = "CC0-1.0"
 
 [[annotations]]
-path = ["ThirdParty/TermLoom/Sources/**", "ThirdParty/TermLoom/LICENSE"]
+path = ["Native/FFFBridge/Rust-LICENSE-MIT.txt"]
 precedence = "override"
-SPDX-FileCopyrightText = "2026 Frank Wang"
+SPDX-FileCopyrightText = "The Rust Project Contributors"
 SPDX-License-Identifier = "MIT"
 
 [[annotations]]
-path = ["ThirdParty/TermLoom/Sources/TermLoom/Input.swift", "ThirdParty/TermLoom/Sources/TermLoom/Application.swift", "ThirdParty/TermLoom/Sources/TermLoom/TerminalSession.swift"]
-precedence = "aggregate"
-SPDX-FileCopyrightText = "2026 PangMo5 and contributors"
-SPDX-License-Identifier = "MIT"
+path = ["ThirdParty/FFFBridge/LICENSE.txt", "ThirdParty/FFFBridge/TataraFFF.xcframework/**/*.a"]
+precedence = "override"
+SPDX-FileCopyrightText = "See ThirdParty/FFFBridge/LICENSE.txt"
+SPDX-License-Identifier = "AGPL-3.0-only AND MIT AND Unicode-3.0"

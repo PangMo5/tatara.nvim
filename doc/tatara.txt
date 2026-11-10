@@ -1,0 +1,151 @@
+*tatara.txt*  Native Neovim pull-request review                    *tatara.nvim*
+
+INSTALLATION                                                   *tatara-install*
+
+Tatara requires Neovim nightly (0.13+), macOS 15+, Xcode 27.2 with Swift 6.4.2
+for the build, and git, gh, and difft on PATH. Authenticate gh before reviewing
+a real pull request.
+
+vim.pack with manifest support builds the backend at install and update. >lua
+  vim.pack.add({ { src = 'https://github.com/PangMo5/tatara.nvim', version = 'main' } })
+<
+lazy.nvim runs the same build from the plugin checkout. Add this spec. >lua
+  { 'PangMo5/tatara.nvim', branch = 'main', cmd = 'Tatara', opts = {} }
+<
+To build a checkout manually, run this in its directory. >sh
+  swift Scripts/Tatara.swift build release
+<
+Run `swift Scripts/Tatara.swift install-local` from a manual checkout to install
+the standalone launcher and native start package. Use one loading method per
+Neovim configuration. Run `:Tatara demo` and `:checkhealth tatara` to verify.
+
+Full installation guide:
+https://github.com/PangMo5/tatara.nvim/blob/main/docs/INSTALL.md
+
+SETUP                                                            *tatara-setup*
+
+See |tatara-install| for package managers and backend builds. To customize the
+plugin, pass settings to setup(). >lua
+    require('tatara').setup({ language = 'ko' })
+<
+The backend option accepts an executable or argv list. It never uses a shell.
+The CLI `tatara` launches your Neovim configuration directly into this plugin.
+The local installer registers a native start package. In an editor that was
+already running during installation, load it once with :packadd tatara.nvim.
+Commands launched during startup open the review after VimEnter callbacks,
+preserving the user's session restoration order. Lua startup integrations should
+use require('tatara').start(opts); open(opts) creates the tab immediately.
+
+COMMANDS                                                       *:Tatara*
+
+:Tatara                 Open the current branch's PR or choose a PR if absent.
+:Tatara {number}         Open a particular PR in the current repository.
+:Tatara list            Browse detailed PR entries with a separate preview.
+:Tatara demo            Open synthetic data; remote writes are disabled.
+:Tatara files           Focus the Files window.
+:Tatara overview        Read the PR description.
+:Tatara diff_view       Return to the selected structural source diff.
+:Tatara combined        Review every changed file from the root.
+:Tatara checks          Read checks and published review states.
+:Tatara discussion      Read the complete discussion.
+:Tatara drafts          Navigate, edit or remove pending inline comments.
+:Tatara filters         Edit forge queries, labels and local presets.
+:Tatara issues          Browse repository issues.
+:Tatara mark_reviewed   Toggle the current file's saved reviewed marker.
+:Tatara mark_hunk_reviewed  Toggle the current forge hunk's saved reviewed mark.
+:Tatara toggle_reviewed Hide/show reviewed files in the tree and diff.
+:Tatara filter_files    Include/exclude files with Neovim regular expressions.
+:Tatara saved_reviews   Inspect saved revisions; d removes with confirmation.
+:[range]Tatara suggest  Prefill an editable suggestion from immutable new code.
+:Tatara file_comment    Compose a separate, previewed file-level comment.
+:Tatara typed_comment   Choose an optional configured comment template.
+:Tatara export          Open a Markdown export in a native writable buffer.
+:Tatara export json     Open a versioned JSON export in a writable buffer.
+:Tatara export clipboard  Copy Markdown through the user's clipboard provider.
+:Tatara browser         Open the selected item in a browser.
+:Tatara theme           Select an installed editor colorscheme.
+:Tatara notifications   Read native message history.
+:Tatara comments        Read published comments and access permission-gated actions.
+:[range]Tatara comment  Compose a line/range comment from a source buffer.
+:Tatara review          Compose a review summary and preview its exact payload.
+:Tatara post_comment    Preview the current inline editor as one published comment.
+:Tatara refresh         Refresh metadata and invalidate old write previews.
+:Tatara close           Close only the owned review session.
+:checkhealth tatara     Check the editor and backend runtime dependencies.
+
+NATIVE EDITOR BEHAVIOR                                      *tatara-native*
+
+Use normal Neovim window movement, source motions, search, folds and jumplist.
+Structural alignment and token emphasis come from difftastic by default. Select
+diff = { engine = 'native' } to explicitly choose Neovim's line-diff engine.
+The head and merge-base files use distinct immutable worktree paths, so normal
+filetype detection and configured LSP auto-attachment apply to both revisions.
+Source files are read-only while being reviewed. Their original options and
+existing user-local mappings are preserved on close. Tatara does not remap gd,
+gr or K, start LSP clients, configure diagnostics, or replace user LSP handlers.
+
+Default review actions are buffer-local: c comment, visual c range comment,
+R finish review, gF Files, gc published comments, gP pending drafts, gC combined
+diff, g/ immutable content search, Space reviewed, Ctrl-p quick switcher,
+g[/g] previous/next review section, LocalLeader-1/2/3/4 select sections,
+gw wrap, and q close. ]h/[h move forge hunks, ]f/[f move files, gH marks
+a hunk reviewed and gs composes a source suggestion (Normal or Visual mode).
+LocalLeader-h hides reviewed files, LocalLeader-f edits file filters,
+LocalLeader-C composes a file comment, LocalLeader-c chooses a configured
+comment category, LocalLeader-e exports and LocalLeader-s shows saved reviews. Ctrl-w moves windows; Tab remains native Ctrl-i.
+In Files, cursor movement previews the selection, / finds a file with FFF and Enter
+opens/folds the selected entry. The root opens a combined structural diff.
+Existing user buffer-local mappings take precedence. Set an action's key to
+false or override it in setup(). Use :Tatara commands if a mapping is occupied.
+
+Combined and narrow unified views are derived read-only projections. Comments
+retain exact source identities; Enter opens the real source buffer for native
+LSP. Filenames stick in the winbar once their file header leaves the viewport.
+The summary stays above Files. Detailed PR/issue selectors use native metadata
+search; f edits forge filters, L loads another page and I switches item kinds.
+
+Write an anchored Markdown composer with :write to save a local draft
+and return to source. <LocalLeader>p / :Tatara post_comment previews one published
+comment directly. Esc leaves Insert mode first; Esc in Normal mode closes
+the composer, retaining uncommitted text for this session.
+Adding a local draft performs no remote write. A GitHub write requires a separate
+read-only preview and Enter confirmation, bound to the reviewed revision/account.
+A consumed preview is never retried automatically, including after a failure.
+R opens a summary editor, visible event choices and a pending-comment window.
+Use g1/g2/g3 or the header to choose Comment/Approve/Request changes. In pending
+comments, Enter edits, d removes and o opens source. Preview/Back keeps text and
+event selection. f opens query, presets and labels together in real splits.
+Saved inline drafts, summary/event and file/hunk marks survive editor restarts
+at the exact account/repository/PR/merge-base/head. :write is the save boundary;
+unfinished composer text remains session-local. Old revisions are never silently
+reanchored. File filters also scope continuous diff and file/content search.
+Export buffers support native :write PATH without publishing anything.
+File-level comments use a separate single-comment preview and do not enter the
+batch of pending inline comments. Draft IDs survive editing and PR switches. A single published comment
+is available even when pending review comments exist. In the published thread
+reader, r replies, e edits, d previews deletion, a chooses a reaction and s
+resolves/reopens when permitted; y copies and o opens its permalink.
+Reaction choice includes all eight types and previews addition versus removal.
+
+EXTENSIONS                                                  *tatara-extensions*
+
+setup({}) accepts backend, language, layout, initial_view, diff, keymaps,
+prepare, picker, select, notify, files and opt-in comment_types.
+The workspace preserves Tatara's review flow on real Neovim windows and buffers.
+Small choices use vim.ui.select; configured MiniPick supplies live search and
+quick-selection UI. Notification overrides remain available. Main editor modes,
+Ctrl-w navigation, syntax and LSP remain native. User events include:
+
+  TataraReady, TataraWorkspaceReady, TataraFileOpened, TataraDraftChanged,
+  TataraReviewSubmitted, TataraRefreshed, TataraProgress, TataraClosed,
+  TataraReviewProgressChanged, TataraFileFilterChanged.
+
+Use nvim_create_autocmd('User', {pattern=..., callback=...}) and event.data.
+get_context() returns a copied source identity and owned window IDs.
+
+prepare(context, done) is an optional user-owned asynchronous setup hook before
+opening a file buffer. Call done(nil) on success or done(message) on failure;
+return a cancellation function when appropriate. Never execute PR-authored setup
+configuration. Native LSP startup and diagnostics continue to follow user config.
+
+vim:tw=78:ts=8:noet:ft=help:norl:

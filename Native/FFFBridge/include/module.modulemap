@@ -1,0 +1,4 @@
+module TataraFFF {
+  header "TataraFFF.h"
+  export *
+}

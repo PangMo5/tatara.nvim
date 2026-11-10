@@ -98,9 +98,9 @@ public struct LocalGitReader: Sendable {
     }
   }
 
-  // MARK: Private
+  // MARK: Internal
 
-  private static func matchesRemote(_ raw: String, repository: RepositoryID) -> Bool {
+  static func matchesRemote(_ raw: String, repository: RepositoryID) -> Bool {
     let value: String
     if raw.contains("://") {
       value = raw
@@ -116,6 +116,8 @@ public struct LocalGitReader: Sendable {
     }
     return slug.lowercased() == repository.slug.lowercased()
   }
+
+  // MARK: Private
 
   private static func decodeBlob(_ output: Data, spec: String) throws -> Data? {
     guard let separator = output.firstIndex(of: 0) else {

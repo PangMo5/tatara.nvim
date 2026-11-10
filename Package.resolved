@@ -1,5 +1,5 @@
 {
-  "originHash" : "48cd0e1c3b30c381e4f82b8f8cf0449f586b78bd6df1faa209f2d283667c8ac4",
+  "originHash" : "58a8af19e81effa3dbe5057295bf21407d83720a8737a4ffadab1db0f4cbd31d",
   "pins" : [
     {
       "identity" : "combine-schedulers",
@@ -38,15 +38,6 @@
       }
     },
     {
-      "identity" : "swift-case-paths",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-case-paths",
-      "state" : {
-        "revision" : "cb4cba6a8a46a86db0d37dbe09935ead6b24c91a",
-        "version" : "1.10.0"
-      }
-    },
-    {
       "identity" : "swift-clocks",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/pointfreeco/swift-clocks",
@@ -62,15 +53,6 @@
       "state" : {
         "revision" : "f96b909e1a9e469620bc5037c1e24e00153f376f",
         "version" : "1.7.5"
-      }
-    },
-    {
-      "identity" : "swift-composable-architecture",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-composable-architecture",
-      "state" : {
-        "revision" : "377da4061db10d26337a71bb279c506bb951f50f",
-        "version" : "1.26.2"
       }
     },
     {
@@ -116,15 +98,6 @@
       "state" : {
         "revision" : "b23bb4493c439d3e05152bc167014235ba3d47fc",
         "version" : "2.1.2"
-      }
-    },
-    {
-      "identity" : "swift-navigation",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/pointfreeco/swift-navigation",
-      "state" : {
-        "revision" : "7e95e5e9ff0a64f6ad8bca59083f8d6ba381b6ff",
-        "version" : "2.11.2"
       }
     },
     {
@@ -188,15 +161,6 @@
       "state" : {
         "revision" : "869129b7bf4ecc57b97d0193ad29690ca2134750",
         "version" : "1.8.1"
-      }
-    },
-    {
-      "identity" : "swift-toml",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/mattt/swift-toml",
-      "state" : {
-        "revision" : "8227201d741c82183c9b0531a7d9ec7fa9240a2f",
-        "version" : "2.1.0"
       }
     }
   ],

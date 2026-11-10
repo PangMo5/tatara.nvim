@@ -1,0 +1,15 @@
+{
+  "name": "tatara.nvim",
+  "description": "Review GitHub pull requests in native Neovim buffers",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PangMo5/tatara.nvim"
+  },
+  "engines": {
+    "nvim": ">=0.13.0-dev"
+  },
+  "scripts": {
+    "install": "build.lua",
+    "update": "build.lua"
+  }
+}

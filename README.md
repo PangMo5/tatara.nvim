@@ -1,301 +1,102 @@
-# Tatara
+# tatara.nvim
 
-A terminal workspace for reading and reviewing pull requests, with
-[difftastic](https://github.com/Wilfred/difftastic) for structural diffs,
-Vim motions, and a pane-based review workflow.
+Review GitHub pull requests with native Neovim windows, source buffers and your existing editor configuration. A persistent Swift backend handles `gh`, immutable revisions, difftastic, caching and validated review writes.
 
-*Tatara* (たたら) is a traditional Japanese furnace
-used to smelt iron and steel. Tatara brings that idea to pull requests: a place to
-examine changes, work through feedback, and refine code before it is merged.
+Tatara keeps its review workspace and interaction flow on native Neovim buffers and windows. `tatara` opens that workspace from the current directory and uses your editor configuration; it requires Neovim. The UI is not a generic buffer list or a separate terminal renderer.
 
-> [!WARNING]
-> Tatara is pre-release software under active development. Features, key bindings,
-> and configuration may change, and you may encounter bugs. Use it with care, and
-> check the target repository and preview before posting comments or reviews to
-> GitHub.
+![Native Neovim review workspace](docs/images/neovim-review.png)
 
-![Tatara's Catppuccin Mocha workspace with a side-by-side difftastic review](docs/images/tatara.png)
+## Requirements
 
-Synthetic demo rendered from actual PTY cells with Maple Mono NF KR 12pt and
-the Catppuccin Mocha terminal palette. See [screenshot reproduction](docs/SCREENSHOTS.md).
+- Neovim nightly, currently 0.13+, with your preferred editor configuration.
+- macOS 15+, Xcode 27.2 / Swift 6.4.2 for the backend build.
+- `git`, `gh` and `difft` on PATH. Authenticate `gh` for the repository's host.
 
-Tatara currently supports **GitHub through `gh`**, including GitHub Enterprise.
-It runs on macOS 15 or newer. GitLab and other forges can be added behind the same
-client boundary while retaining their own terminology and capabilities.
+## Install
 
-## Try from source
+Choose an installation method. All methods use the Swift backend built from source.
 
-Requires Xcode 27.2 (Swift 6.4.2, macOS 27.2 SDK) and [mise](https://mise.jdx.dev).
-The project pins its tools in `.mise.toml`; set `DEVELOPER_DIR` if your Xcode
-installation uses another path. Development uses colocated [Jujutsu](https://jj-vcs.dev)
-with the existing Git history. See [contributing](CONTRIBUTING.md).
+**vim.pack** with PackSpec support in current Neovim nightly
 
-```sh
-mise install
-mise run toolchain
-mise run resolve
-mise run build
-mise run run -- --demo
-
-mise exec -- gh auth login
-mise run run -- --repo OWNER/REPO
+```lua
+vim.pack.add({ { src = 'https://github.com/PangMo5/tatara.nvim', version = 'main' } })
 ```
 
-Run without `--repo` inside a repository to use `gh repo view`'s repository
-selection. `--host github.example.com --repo OWNER/REPO` selects an Enterprise
-host; authenticate it first with `gh auth login --hostname github.example.com`.
+**lazy.nvim**
 
-For a local optimized installation, run `mise exec -- swift Scripts/Tatara.swift build Release`
-and `mise exec -- swift Scripts/Tatara.swift install-local`. This installs into
-`~/.local/share/tatara/local/bin`; add that directory to your shell
-PATH. Re-run the installer after rebuilding, then restart Tatara.
-Keep `libswiftCompatibilitySpan.dylib` beside `tatara` in that `bin` directory;
-the installer copies this Swift compatibility runtime for macOS 15 support.
+```lua
+{ 'PangMo5/tatara.nvim', branch = 'main', cmd = 'Tatara', opts = {} }
+```
 
-## Installation status
+Both managers build the backend on install and update. Open `:Tatara demo` to try the workspace, or run `:Tatara` from a GitHub repository to start a review.
 
-Tatara currently installs from source. No binary release has been published,
-and Homebrew installation is not supported. mise installs the pinned development
-tools; its GitHub binary backend cannot install Tatara until release assets exist.
+**Terminal launcher and native start package**
 
-For a locally installed build, keep `gh` and `difft` available on `PATH` outside
-this checkout. For example, `mise use -g aqua:cli/cli aqua:Wilfred/difftastic`
-installs those runtime tools. Rebuild and rerun `install-local` to update Tatara.
-See the [release checklist](docs/RELEASING.md) for the unverified binary distribution
-work that remains before the first release.
+```sh
+git clone https://github.com/PangMo5/tatara.nvim.git
+cd tatara.nvim
+swift Scripts/Tatara.swift build release
+swift Scripts/Tatara.swift install-local
+```
 
-Use `tatara --current` inside a Git checkout or linked worktree to open the PR
-associated with that branch directly in Files. It uses `gh pr view` for checkout
-resolution; a missing PR is an explicit error. `--current` uses the current
-directory and cannot be combined with `--repo`.
+Add `~/.local/share/tatara/local/bin` to PATH. The installer also makes `:Tatara` available on the next Neovim startup.
+
+See the [installation guide](docs/INSTALL.md) for toolchain selection, updates, manual plugin loading, and `:checkhealth tatara`.
+
+## Open a review
+
+With the terminal launcher installed, run these commands from a repository.
+
+```sh
+cd /path/to/repository
+# Opens this branch's PR or lets you choose a PR when the branch has none.
+tatara
+# Open a particular PR in this repository.
+tatara --number 123
+# Synthetic data; no forge writes.
+tatara --demo
+# Detailed repository selector, including additional pages and forge queries.
+tatara --list
+tatara --issues
+# Optional editor overrides; the default inherits your configuration.
+tatara --language ko --files-view list --sidebar-width 40 --wrap off
+```
+
+With any installation method, `nvim -c Tatara` opens the current branch's PR or the repository's PR selector when the branch has no PR. Use `:Tatara 123` to open a specified PR and `:Tatara list` or `:Tatara issues` for detailed selectors with search, filters, presets and pagination. Ctrl-p is the quick switcher. Startup commands wait for `VimEnter` callbacks so session restoration runs before the review tab opens.
+
+## Native editor behavior
+
+- Files, the PR overview and the two diff sides are real Neovim windows. Use your normal window navigation; Tatara installs no global navigation mappings.
+- Difftastic owns structural alignment and changed-token emphasis by default. Native extmarks, virtual filler and folds display that alignment in immutable file buffers; the line-diff engine does not replace it. Set `diff = { engine = 'native' }` to explicitly choose Neovim's diff engine.
+- The root opens a combined structural diff. Narrow file views show both source sides in a unified projection. Every source row retains its immutable path, side and line for comments; Enter opens the corresponding ordinary file buffer for your configured LSP. Projections are derived review views and are not attached to a language server as fictitious files.
+- The PR summary stays above Files, with semantic colors for status, branches, directories and change counts. Moving the Files cursor previews that file or directory without moving focus; Enter opens the true source buffer. Paths stick in the content winbar. Switch Overview/Diff/Discussion/Checks with `g[` / `g]`, clickable headings, or `<LocalLeader>1` / `2` / `3` / `4`.
+- The head source uses a real, detached immutable worktree path. Existing FileType, BufRead, LspAttach, Tree-sitter and diagnostic configuration continue to work normally. Base sources use their own immutable worktree paths too; neither revision starts a Tatara-owned language server.
+- Native `/`, `n`/`N`, motions, folds and jumplist behavior remain Neovim's responsibility in source buffers. Files `/` opens a path picker, and `g/` searches immutable PR contents.
+- With MiniPick already configured, Files `/` uses its existing layout, mappings and preview UI with asynchronous FFF ranking and exact Unicode match highlights. Other editors use their standard UI provider; a custom `picker` can implement the same cancellable query contract. Content search offers plain text, regex and fuzzy modes.
+- Initial source focus goes to the first changed line; exact content-search targets take priority.
+- Tatara starts no LSP servers, changes no LSP capabilities and does not configure diagnostics. Define and enable your servers normally with `vim.lsp.config` / `vim.lsp.enable`. Semantic features still depend on your server's build metadata and indexing.
+- Xcode workspace/scheme selection and BSP configuration remain user-owned. Use an explicit asynchronous `prepare(context, done)` hook for build-system setup before buffers open. `User TataraWorkspaceReady` also exposes the checkout identity for observers. No project-authored setup is executed automatically.
 
 ## Review workflow
 
-- Loading shows a shaded pixel-art forge with a swinging hammer, glowing metal
-  and sparks. Initial loading has a centered scene; diff preparation has a smaller
-  scene beside the identified preview, or an inline indicator in narrow panes. Use
-  `--reduce-motion`, `--stable-output` or `--accessible` to keep the artwork still.
-- Start by selecting a PR in a dedicated screen. Every row includes its author,
-  update time and branches; the adjacent Overview shows assignees, reviewers,
-  labels, milestone, CI/review state and change totals. There is no density toggle.
-- `Enter` opens the review workspace: a short PR summary sits above a tall Files
-  tree. `Ctrl-p` opens a quick picker in Normal mode: `j/k`, `gg/G`,
-  `Ctrl-d/Ctrl-u` and `Ctrl-f/Ctrl-b` move through its rows. `/` or `i` enters
-  Insert mode to filter titles, numbers or authors. `Enter` opens the selection
-  from either mode. `Esc` leaves Insert mode first, then closes the picker.
-  Arrow keys and `Ctrl-j/Ctrl-k` or `Ctrl-n/Ctrl-p` also work while typing.
-- `Tab` and `Shift-Tab` cycle the two panes on the active screen. `Esc` returns
-  from the review workspace to PR selection after clearing any active interaction.
-  Clicking the PR summary also opens the picker. The active pane has a Lavender border.
-- PR and file lists retain neighboring entries above and below the selection.
-  Missing GitHub metadata is not treated as a success or zero. `r` refreshes it.
-- Files use a directory tree by default. `Enter` folds/unfolds directories;
-  `h` collapses or selects the parent, and `l` expands or enters a child.
-  Focusing a directory shows the combined diff of its changed descendants.
-- Below 100 columns, Files and Diff stay visible in an equal vertical split:
-  Files above and Content below. Tab changes focus without replacing either pane;
-  mouse and wheel input target the panel under the pointer.
-- The current-PR summary shows draft/open state, explicit review and CI status,
-  branch direction, file/comment totals, added/removed lines and commits. Reviewer,
-  assignee and label rows use remaining room; the border shows the update timestamp.
-- Panel titles, counts and selection positions sit in their borders. Diff file
-  names stay pinned while scrolling, including combined folder diffs. A subtle
-  cursor-line tint follows the active source side without changing syntax colors.
-- In Diff, `c` starts a comment at the source cursor; `V` selects a range. Adding
-  the comment returns to Diff and shows a **Pending review** card. `R` opens the
-  review summary beside Files, where pending comments can be opened, edited or
-  removed. A preview precedes the explicit final submission. Drafts remain local
-  until submission and stay in this process until quitting.
-- `gc` focuses an existing comment and `{` / `}` move between comments. `Enter`
-  opens its conversation reader; `c` replies and `e` edits when permitted. Escape
-  returns from editing to the reader, preserving the unfinished text; Escape again
-  returns to Diff. Every published-comment mutation retains its preview and fresh
-  permission/version/head checks.
-- `[` / `]` switch Overview, Diff, Discussion and Checks.
-- `gg/G` jump to first/last; `Ctrl-d/Ctrl-u` move half a page. `j/k` move source
-  lines while `gj/gk` move displayed lines when a source line wraps.
-- Diff lines wrap by default. `w` toggles wrap; with wrap off, use `zh/zl` to scroll
-  horizontally, `zH/zL` for half a screen and `z0` for the start. Horizontal wheel
-  input also works. Additions/deletions with only one source side use the full width.
-- `/` in PRs finds titles, numbers, authors and branches within the loaded list;
-  in Files it finds file names and paths. Both keep all rows visible. Matches
-  highlight as you type, with no provider reads or preview changes. `Enter`
-  confirms the match, `Esc` cancels back to the original cursor and folds, and
-  `n/N` wrap through matching rows from the current cursor. After confirmation,
-  `Esc` clears the search. Patterns are case-sensitive; use `(?i)` to ignore case.
-- `f` opens GitHub filters and presets, including queries such as
-  `is:open label:bug author:@me`. `L` loads another page of remote results.
-- `g/` opens file-content search across all changed files. Submit a regular
-  expression with `Enter`; results show `path:line`, source side and a highlighted
-  excerpt. `j/k` or `n/N` navigate, `Enter` opens the exact diff location, and
-  `/` or `i` edits the query. `Esc` leaves input before closing the result list.
-  Added/modified files use the reviewed head; deleted files use the merge base.
-  Opening a result reveals its immutable context even outside ordinary diff hunks.
-- `/` in Diff highlights regular-expression matches; `n/N` move to the next or
-  previous occurrence and reveal matches beyond the visible columns. `Enter`
-  keeps the query active; `Esc` clears it without changing panes.
-- In Diff, `*` / `#` search the current word forward/backward; `g*` / `g#`
-  also match inside longer words. The line cursor uses the first keyword on the
-  line, or the word at the current search hit. `n` follows the search direction;
-  `N` reverses it. `zt` / `zz` / `zb` place the current line toward the top,
-  center, or bottom of the viewport, clamped at document boundaries.
-- `Ctrl-f/Ctrl-b` page the content with a two-line overlap, even from Files. The
-  Diff cursor moves with the viewport while Files retains keyboard focus.
-- Scrollbars show the visible range in each pane and help. Click or drag a track
-  to scroll without changing keyboard focus, item selection or the Diff cursor.
-- Use the mouse wheel or trackpad over a pane to scroll it without moving
-  keyboard focus or the Diff source cursor. Sidebar scrolling preserves the
-  selected item and file; the help popup owns scrolling while open.
-- `I` switches PRs and issues. `r` refreshes from a sidebar. `o` opens the original in a browser.
-- `Space` marks the selected file reviewed for this PR's exact base/head revision.
-- In Diff, `h/l` choose LEFT/RIGHT. `Shift-V` starts linewise selection, `j/k`
-  extend it, and `Esc` clears it. `c` or `r` opens the cursor/range comment editor
-  inline beneath the source line. Existing comments and pending drafts appear
-  in the diff; outdated comments are identified under their file header.
-  A range must fit one file and a reviewable GitHub hunk.
-  `R` opens the review summary inline in Diff. Preview shows every comment and range before
-  Submit; no review is posted just by pressing `c` or `r`.
-- `c` from a file list also supports manual source coordinates. Issues support
-  ordinary comments.
-- `gc` focuses published comments or returns to source. `{` / `}` select the
-  previous/next comment; clicking a comment focuses it too. `c` replies, `e` edits
-  your comment, `D` deletes it, `a` manages reactions, and `s` resolves or reopens
-  its review thread. `y` copies the body and `o` opens the comment permalink.
-  Each write needs a preview and confirmation, then fresh account, permission,
-  comment-version and PR-head validation. A write is never retried automatically.
-- Code-review comments occupy the LEFT or RIGHT column matching their source,
-  with directional borders; narrow layouts retain explicit side labels. Markdown
-  prose supports styled headings, nested quotes, task lists, tables, links/images,
-  code fences, reference links and thematic rules. Diff source remains literal.
-- `f` opens remote filters, a repository label picker, and saved presets. Use GitHub qualifiers such as
-  `is:open author:@me`, `review-requested:@me`, `label:bug`, `draft:false` or
-  `is:merged`. Built-in presets cover common queues; named custom presets are
-  stored per forge/repository in `$XDG_DATA_HOME/tatara/state/filters.sqlite`
-  (default `~/.local/share/tatara/state/filters.sqlite`), independently of caches.
-- `T` cycles Catppuccin flavors. `?` opens a searchable key-binding popup;
-  `/` filters its commands. `Esc` clears that search, then closes the popup. `q` quits.
+Select a file and press Enter. Source-buffer `c` opens a Markdown editing buffer near the source anchor; visual `c` selects a range. `:write` saves directly to the pending review and returns to source. `<LocalLeader>p` or `:Tatara post_comment` previews a single published comment without including unrelated drafts. Insert-mode completion keys remain native; Ctrl-s is a save shortcut only in Normal mode.
 
-Inside review editors, use the native text editing keys and Tab to move between
-fields/buttons. Esc returns to the workspace. Drafts and reviewed marks are kept
-only for the lifetime of the process. A changed head requires a refreshed review.
+`R` opens the review workspace directly: summary, visible Comment/Approve/Request changes choices, and pending comments. Select the review event with g1/g2/g3 or the header controls, navigate ordinary windows with Ctrl-w, and write the summary to preview. Enter edits a pending comment, d removes it and o opens its source. Preview/Back retains text and event selection. Published writes require an explicit confirmation of the concrete preview.
 
-## Configuration
+Comments are read before mutation actions. Drafts and previews are bound to the reviewed immutable head. Refreshing to another revision invalidates old write previews. Changing the active `gh` account invalidates confirmation. Network writes are never retried automatically.
 
-Create `$XDG_CONFIG_HOME/tatara/config.toml` (default `~/.config/tatara/config.toml`):
+`:Tatara drafts` (`gP`) focuses pending comments inside review completion. Switching PRs retains drafts for the same reviewed revision. `gc` opens the contextual thread reader: r replies, e edits, d previews deletion, a chooses a reaction and s resolves/reopens when freshly permitted. The reader also supports copying and permalinks. Space toggles a file's reviewed marker. `:Tatara checks` and `:Tatara discussion` show the other review sections.
 
-```toml
-theme = "mocha" # latte, frappe, macchiato, mocha
-language = "ko" # en, ko, ja, zh-Hans, zh-Hant
-files_view = "tree" # tree or list
-sidebar_width = 52 # preferred PR/Files width in columns; minimum 24
-wrap = true # w toggles for the current session; --wrap on/off overrides it
+Saved inline comments, review summaries and file/hunk progress are restored when reopening the same account, repository, PR, merge base and head. `:write` is the save boundary; unfinished composer text stays in memory until you save it. Older revisions remain separate and are never silently reanchored. `:Tatara saved_reviews` shows saved revisions and offers explicit removal.
 
-[keys]
-quit = ["Q"]
-```
+Use `]h` / `[h` for forge hunks and `]f` / `[f` for files. `gH` marks the current hunk reviewed; Space marks a file. `<LocalLeader>h` hides reviewed files. `<LocalLeader>f` opens include/exclude Neovim regex filters, shared by the tree, continuous diff and search results.
 
-`--theme`, `--language`, `--files-view`, `--sidebar-width`, `--wrap` and `--config` override the defaults.
-The review sidebar uses the configured width; the PR selection screen gives the
-list additional room for metadata. Narrow windows reduce it to leave at
-least 60 columns for content; windows below 100 columns show one pane at a time.
-Conflicting bindings
-are errors. `--no-color`, `--ascii` and `--accessible` are provided by Tatara.
-The complete locale policy is in [LOCALIZATION.md](docs/LOCALIZATION.md).
+`gs` in Normal or Visual mode opens a suggestion prefilled from immutable new-side source. `<LocalLeader>C` or `:Tatara file_comment` composes a file-level comment with its own single-comment preview; it is not added to a batched inline review. `:Tatara export` and `:Tatara export json` open ordinary writable buffers, so native `:write PATH` saves the export. `:Tatara export clipboard` copies Markdown through the user's clipboard provider. Exporting does not publish anything.
 
-## Local cache
+Composer bodies remain available when reopening the same composer during the review session.
 
-SQLiteData stores cached reads in `$XDG_CACHE_HOME/tatara/cache.sqlite`
-(default `~/.cache/tatara/cache.sqlite`). Entries are scoped to the authenticated
-GitHub account, host and repository. Lists and PR details expire after 30 seconds;
-`r` in a sidebar bypasses cached metadata. Immutable file snapshots and structured
-difftastic results are reused across launches, keyed by repository, revisions,
-paths and engine version. Width/theme changes do not rerun the structural diff.
-The cache retains at most 128 MiB of payloads and 256 entries. Review submission
-always checks the current remote head and merge base. Authentication still requires `gh`.
+Default mappings are buffer-local and configurable; existing user buffer mappings take precedence. Set an action to `false` to disable it. Native LSP mappings such as `gd`, `gr` and `K` are not replaced.
 
-Within a session, a bounded cache also reuses prepared text and diff viewports.
-While another selection loads, a banner identifies the previous preview until
-its replacement is ready. Review entry waits for the selected preview to finish.
+Use `:checkhealth tatara` to inspect runtime dependencies. Set `materialize = false` in `open()` for an explicit source-only view without native file-backed LSP attachment.
 
-Interactive diffs use difftastic's JSON alignment and token coordinates, then
-validate source anchors against GitHub's patch. Tatara enables `DFT_UNSTABLE=yes`
-for its child process; JSON schema mismatches are visible errors. Formats without
-source alignment, including binary and syntactically unchanged results, do not
-invent cursor anchors. The adapter is validated against difftastic 0.72.0.
-
-Ordinary surfaces inherit the terminal background, including its configured
-transparency and blur. Catppuccin colors style text, borders and interaction
-highlights; background opacity remains a terminal setting.
-
-Diff highlighting follows difftastic's JSON token categories: removed/added tokens
-use terminal ANSI red/green (bright on dark themes), with bold keywords, types and
-delimiters, and italic comments. Unchanged source uses the terminal foreground.
-Tatara adds no syntax accent colors, blanket underlines or diff background fills.
-JSON does not expose unchanged syntax categories or distinguish novel words from
-whole tokens, so those native-only details are not inferred. Narrow Diff panes
-show removed and added lines together, preserving source and review coordinates.
-
-The Files tree starts with `/`. Select it to read every changed file in one diff,
-including files at the repository root. Enter toggles expansion; `h`/`l` navigate
-the hierarchy. Combined rows retain each file's own search and review coordinates.
-
-Files show `A` (added), `M` (modified), `D` (deleted), `R` (renamed) or `C` (copied),
-with GitHub's exact `+added −deleted` line counts; zero values are hidden. A `cN`
-badge counts published file comments, including replies and outdated comments.
-PR-level discussion and local drafts are excluded. Tree indentation uses one column
-per level. Long names retain their beginning and extension; the Diff header keeps
-the full selected path. The footer explains the selected file status, or shows
-difftastic's detected language and structural change status while reading a diff.
-
-## Development
-
-Swift Package Manager owns the project graph; no Xcode project generation is
-required. Open `Package.swift` in Xcode for IDE support, or use `swift build`,
-`swift run tatara` and `swift test` through the pinned mise environment.
-TCA owns application state and effects. TermLoom
-owns terminal layout, input and rendering. Swift Subprocess runs `gh` and `difft`
-with explicit arguments and cancellation. TOML configures user preferences.
-All project automation is Swift: `Scripts/Tatara.swift` drives development and
-releases; `Scripts/Smoke` is a Swift package using SwiftTerm for real PTY checks.
-The [local TermLoom package](ThirdParty/TermLoom/README.md) contains pinned upstream
-core and TextArea sources with the required wheel-axis and bounded scroll
-presentation changes. Builds do not modify dependency checkouts. Remote dependency
-versions are recorded in `Package.resolved`; `mise run resolve` also resolves the
-independent PTY helper. `TataraVersion.current` owns the executable version.
-Immutable file contents can be read from a matching local Git object store
-(Git 2.43 or newer), without checkout or fetch. Otherwise the existing `gh`
-provider reads the pinned revision. Folder/root diffs prepare at most four files
-concurrently and retain their original file order and source coordinates.
-`Package.swift` records the minimum macOS version and pinned SDK version. mise
-selects the matching SDK through `DEVELOPER_DIR`/`SDKROOT`, and scripted builds
-verify both values in the executable's Mach-O metadata.
-
-```sh
-mise run test
-mise run format
-mise exec -- swift Scripts/Tatara.swift localizations --check
-mise exec -- swift Scripts/Tatara.swift notices --check
-mise exec -- uvx --from 'reuse[charset-normalizer]==6.2.0' reuse lint
-mise exec -- swift Scripts/Tatara.swift build Release
-mise exec -- swift Scripts/Tatara.swift smoke
-mise exec -- swift Scripts/Tatara.swift smoke --workspace
-mise exec -- swift Scripts/Tatara.swift smoke --stress
-```
-
-The build script queries `swift build --show-bin-path`, then prepares a relocatable
-runtime in `.artifacts/products/CONFIGURATION-ARCH`. It uses Apple's
-`swift-stdlib-tool` to copy the required Span compatibility runtime beside the
-executable and removes Xcode/build-directory library search paths. SwiftPM's own
-outputs remain untouched. `smoke`, installation, packaging and signing use this
-prepared Release runtime; an explicit binary path may be passed first to `smoke`.
-Installation and release archives retain that layout; Developer ID releases sign
-and notarize both files.
-
-See [architecture and initial boundaries](docs/ARCHITECTURE.md),
-[performance measurement](docs/PERFORMANCE.md),
-[contributing](CONTRIBUTING.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
-
-## License
-
-[AGPL-3.0-only](LICENSE). Included dependencies retain their licenses;
-see [third-party notices](THIRD_PARTY_NOTICES.md).
+See [workspace design and Neovim adaptations](docs/NEOVIM_UX.md), [capability inventory and acceptance limits](docs/NEOVIM_PARITY.md), [configuration and extension points](docs/EXTENDING.md), [the backend protocol](docs/PROTOCOL.md), and [development](CONTRIBUTING.md).

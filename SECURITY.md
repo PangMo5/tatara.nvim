@@ -1,7 +1,7 @@
 # Security
 
 Report a security issue privately through
-[GitHub vulnerability reporting](https://github.com/PangMo5/Tatara/security/advisories/new).
+[GitHub vulnerability reporting](https://github.com/PangMo5/tatara.nvim/security/advisories/new).
 Private vulnerability reporting is enabled. Do not publish tokens, private source,
 terminal recordings containing secrets or active exploit details in a public issue.
 

@@ -20,12 +20,6 @@ struct CoreTests {
   }
 
   @Test
-  func `keymap rejects conflicts`() {
-    #expect(throws: TataraError.self) { try Keymap(overrides: ["quit": ["j"]]) }
-    #expect(throws: TataraError.self) { try Keymap(overrides: ["down": ["g"]]) }
-  }
-
-  @Test
   func `locale uses taiwan traditional chinese`() {
     #expect(Language.resolve("zh_TW.UTF-8") == .traditionalChinese)
     #expect(Language.resolve("ko_KR.UTF-8") == .korean)

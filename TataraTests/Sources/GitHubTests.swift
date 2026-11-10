@@ -54,6 +54,65 @@ struct GitHubTests {
   }
 
   @Test
+  func `file comments use the file subject without fabricated source coordinates`() async throws {
+    let writes = Mutex(0)
+    let head = String(repeating: "b", count: 40)
+    let base = String(repeating: "a", count: 40)
+    let runner = CommandRunner { executable, arguments, input in
+      #expect(executable == "gh")
+      if arguments.contains("POST") {
+        writes.withLock { $0 += 1 }
+        #expect(arguments.contains("repos/owner/repo/pulls/1/comments"))
+        let data = try #require(input?.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(object["subject_type"] == "file")
+        #expect(object["commit_id"] == head)
+        #expect(object["path"] == "Sources/A.swift")
+        #expect(object["body"] == "Review the entire file")
+        #expect(object["line"] == nil && object["side"] == nil)
+        return .init(output: Data("{}".utf8))
+      }
+      if arguments.last?.contains("compare/") == true {
+        return .init(output: Data("{\"merge_base_commit\":{\"sha\":\"\(base)\"}}".utf8))
+      }
+      let value: [String: Any] = [
+        "number": 1,
+        "title": "Test",
+        "html_url": "https://github.com/owner/repo/pull/1",
+        "state": "open",
+        "labels": [],
+        "draft": false,
+        "merged": false,
+        "changed_files": 1,
+        "base": ["sha": base, "ref": "main", "label": "main"],
+        "head": ["sha": head, "ref": "feature", "label": "feature"],
+      ]
+      return try .init(output: JSONSerialization.data(withJSONObject: value))
+    }
+    let repo = try RepositoryID("owner/repo")
+    let item = ForgeItem(
+      id: .init(repository: repo, number: 1),
+      kind: .pullRequest,
+      title: "Test",
+      author: "author",
+      url: try #require(URL(string: "https://github.com/owner/repo/pull/1")),
+    )
+    try await GitHubAdapter(runner: runner).submit(.init(
+      item: item,
+      expectedHead: head,
+      event: .comment,
+      body: "",
+      expectedMergeBase: base,
+      singleComment: true,
+      fileComment: .init(
+        path: "Sources/A.swift",
+        body: "Review the entire file",
+      ),
+    ))
+    #expect(writes.withLock { $0 } == 1)
+  }
+
+  @Test
   func `issue page skips P rs but preserves pagination`() async throws {
     let repository = try RepositoryID("owner/repo", host: "github.example.com")
     let runner = CommandRunner { executable, arguments, _ in
@@ -92,6 +151,29 @@ struct GitHubTests {
       "Sources/odd #?;.swift",
     )
     #expect(data == Data([0, 255, 1]))
+  }
+
+  @Test
+  func `current branch with no PR is reported separately`() async throws {
+    let runner = CommandRunner { executable, arguments, _ in
+      #expect(executable == "gh")
+      #expect(arguments.prefix(2) == ["pr", "view"])
+      return CommandResult(error: "no pull requests found for branch \"main\"\n", status: 1)
+    }
+    await #expect(throws: TataraError(.noCurrentPullRequest)) {
+      try await GitHubAdapter(runner: runner).currentPullRequest(RepositoryID("owner/repo"))
+    }
+  }
+
+  @Test(arguments: zip(
+    ["HTTP 401: gh auth login", "dial tcp: connection refused", "GraphQL: Could not resolve to a Repository"],
+    [TataraError.Code.authentication, .commandFailed, .commandFailed],
+  ))
+  func `current branch lookup preserves GitHub failures`(message: String, code: TataraError.Code) async throws {
+    let runner = CommandRunner { _, _, _ in CommandResult(error: message, status: 1) }
+    await #expect(throws: TataraError(code, detail: "gh: \(message)")) {
+      try await GitHubAdapter(runner: runner).currentPullRequest(RepositoryID("owner/repo"))
+    }
   }
 
   @Test

@@ -70,6 +70,7 @@ public struct ReviewDiff: Equatable, Codable, Sendable {
     revision: PullRequestRevision? = nil,
     previousPath: String? = nil,
     cacheIdentity: String? = nil,
+    alignment: [[Int?]]? = nil,
   ) {
     self.path = path
     self.language = language
@@ -78,6 +79,7 @@ public struct ReviewDiff: Equatable, Codable, Sendable {
     self.revision = revision
     self.previousPath = previousPath
     self.cacheIdentity = cacheIdentity
+    self.alignment = alignment
   }
 
   // MARK: Public
@@ -90,6 +92,8 @@ public struct ReviewDiff: Equatable, Codable, Sendable {
   public let previousPath: String?
   /// Names immutable forge revisions and diff-engine options; supplied by the live producer.
   public let cacheIdentity: String?
+  /// Complete, one-based structural alignment; hidden context remains addressable in native buffers.
+  public let alignment: [[Int?]]?
 
   /// Difftastic owns alignment and token changes. Coordinates are never recovered from ANSI columns.
   public static func decode(
@@ -138,7 +142,7 @@ public struct ReviewDiff: Equatable, Codable, Sendable {
       return .init(
         path: path,
         language: file.language,
-        status: file.status,
+        status: "binary",
         rows: [],
       )
     }
@@ -249,6 +253,10 @@ public struct ReviewDiff: Equatable, Codable, Sendable {
       }
       aligned.append(row)
     }
+    guard
+      aligned.compactMap({ $0.left?.number }) == left.indices.map({ $0 + 1 }),
+      aligned.compactMap({ $0.right?.number }) == right.indices.map({ $0 + 1 })
+    else { throw TataraError(.invalidResponse, detail: "Difftastic alignment does not cover the immutable source.") }
     var visible = Set<Int>()
     for index in changed {
       for row in max(0, index - context) ..< min(aligned.count, index + context + 1) {
@@ -273,7 +281,45 @@ public struct ReviewDiff: Equatable, Codable, Sendable {
       result.append(aligned[index])
       last = index
     }
-    return .init(path: path, language: file.language, status: file.status, rows: result)
+    return .init(
+      path: path,
+      language: file.language,
+      status: file.status,
+      rows: result,
+      alignment: aligned.map { [$0.left?.number, $0.right?.number] },
+    )
+  }
+
+  /// First changed source in original alignment order; changed pairs prefer the head.
+  public func firstChange() throws -> SourceLocation? {
+    if status == "created" || status == "deleted" {
+      let side: InlineComment.Side = status == "created" ? .right : .left
+      return rows.first?.line(on: side).map { .init(path: path, line: $0.number, side: side) }
+    }
+    guard status == "changed" else { return nil }
+    for (index, row) in rows.enumerated() {
+      if index % 128 == 0 {
+        try Task.checkCancellation()
+      }
+      let side: InlineComment.Side
+      if let right = row.right, row.left == nil || right.spans.contains(where: \.isChanged) {
+        side = .right
+      } else if let left = row.left, row.right == nil || left.spans.contains(where: \.isChanged) {
+        side = .left
+      } else if
+        let left = row.left,
+        let right = row.right,
+        left.spans.map(\.text).joined() != right.spans.map(\.text).joined()
+      {
+        side = .right
+      } else {
+        continue
+      }
+      if let line = row.line(on: side) {
+        return .init(path: row.path ?? path, line: line.number, side: side)
+      }
+    }
+    return nil
   }
 
 }

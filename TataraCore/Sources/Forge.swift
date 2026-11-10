@@ -542,6 +542,8 @@ public struct ReviewSubmission: Equatable, Sendable {
     body: String,
     comments: [InlineComment] = [],
     expectedMergeBase: String? = nil,
+    singleComment: Bool = false,
+    fileComment: ReviewFileComment? = nil,
   ) {
     self.item = item
     self.expectedHead = expectedHead
@@ -549,6 +551,8 @@ public struct ReviewSubmission: Equatable, Sendable {
     self.body = body
     self.comments = comments
     self.expectedMergeBase = expectedMergeBase
+    self.singleComment = singleComment
+    self.fileComment = fileComment
   }
 
   // MARK: Public
@@ -559,6 +563,9 @@ public struct ReviewSubmission: Equatable, Sendable {
   public var body: String
   public var comments: [InlineComment]
   public var expectedMergeBase: String?
+  /// Publish one inline comment without creating or submitting a pending review.
+  public var singleComment: Bool
+  public var fileComment: ReviewFileComment?
 
 }
 
@@ -577,6 +584,7 @@ public struct TataraError: Error, Equatable, Sendable, CustomStringConvertible {
 
   public enum Code: String, Sendable {
     case invalidRepository
+    case noCurrentPullRequest
     case configuration
     case authentication
     case commandFailed
@@ -592,6 +600,23 @@ public struct TataraError: Error, Equatable, Sendable, CustomStringConvertible {
   public var code: Code
   public var detail: String
 
+  public var messageKey: String {
+    switch code {
+    case .authentication: "Sign in with gh auth login, then refresh."
+    case .revisionChanged: "This pull request changed. Refresh before submitting your review."
+    case .emptyReview: "Write a comment before continuing."
+    case .invalidLine: "Choose a source line included in this file's patch."
+    case .timedOut: "The request timed out. Try again."
+    case .incompleteResponse: "The response is incomplete. Open the original on GitHub."
+    case .configuration: "Check your configuration."
+    case .invalidRepository: "Use a repository in OWNER/REPO format."
+    case .noCurrentPullRequest: "No pull request for this branch."
+    case .unavailable: "This action is unavailable for this item."
+    case .commandFailed,
+         .invalidResponse: "Could not load the data. Check the details and try again."
+    }
+  }
+
   public var description: String {
     "\(code.rawValue): \(detail)"
   }
@@ -604,7 +629,7 @@ public struct TataraError: Error, Equatable, Sendable, CustomStringConvertible {
 
 // MARK: - CommentOperation
 
-public enum CommentOperation: String, Equatable, Sendable {
+public enum CommentOperation: String, Equatable, CaseIterable, Codable, Sendable {
   case reply
   case edit
   case delete
@@ -654,7 +679,7 @@ public enum ReactionContent: String, CaseIterable, Codable, Sendable {
 
 // MARK: - CommentReaction
 
-public struct CommentReaction: Equatable, Sendable {
+public struct CommentReaction: Equatable, Codable, Sendable {
   public init(content: ReactionContent, count: Int, viewerHasReacted: Bool) {
     self.content = content
     self.count = count
@@ -668,7 +693,7 @@ public struct CommentReaction: Equatable, Sendable {
 
 // MARK: - ReviewThread
 
-public struct ReviewThread: Equatable, Sendable {
+public struct ReviewThread: Equatable, Codable, Sendable {
   public init(id: String, isResolved: Bool, canResolve: Bool, canUnresolve: Bool, canReply: Bool) {
     self.id = id
     self.isResolved = isResolved
@@ -686,7 +711,7 @@ public struct ReviewThread: Equatable, Sendable {
 
 // MARK: - CommentContext
 
-public struct CommentContext: Equatable, Sendable {
+public struct CommentContext: Equatable, Codable, Sendable {
 
   // MARK: Lifecycle
 

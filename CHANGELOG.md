@@ -1,23 +1,17 @@
 # Changelog
 
-Version headings identify source versions, not published releases. No binary release has been published.
+## Unreleased
 
-## 0.1.0
+- Rebuild the Lua UI around the original Tatara workspace and reviewer flow, with explicit Neovim adaptations instead of claiming command-level feature presence as UI parity.
+- Restore visible content sections, paired combined diffs, inline conversation cards, anchored native editors, integrated review completion and query/preset/label workspaces.
+- Keep real split navigation and user sizing/visibility, native Markdown/editing/LSP, cancellable list previews and live MiniPick search; restore global editor options outside review tabs.
 
-- Browse GitHub pull requests and issues through `gh`, including Enterprise hosts.
-- Review immutable merge-base/head file snapshots with difftastic inside TermLoom.
-- Read conversation, inline discussion, check runs and submitted review states.
-- Compose review summaries and source-anchored inline comments with an explicit submission preview.
-- Navigate with Vim motions and configurable keys; mark files reviewed for the current revision.
-- Keep long overviews inside a fixed viewport, search each pane, and filter commands in a help popup.
-- Preserve committed search status and clear it with Escape; use Ctrl-f/Ctrl-b to page the main pane from a sidebar.
-- Show interactive pane scrollbars and cooperatively cancel large document processing and obsolete subprocesses.
-- Scroll the hovered pane with a mouse wheel or trackpad while retaining keyboard focus.
-- Isolate pane observation and reuse unchanged document viewports; record reproducible PTY latency and frame profiles.
-- Keep an identified preview while another selection loads, bound wide diff rows before layout, and cache prepared documents.
-- Navigate configurable file trees, identify focus with pane borders, and save GitHub search presets.
-- Use difftastic source alignment for a line cursor and Shift-V range comments on either side, with head and merge-base validation.
-- Reuse account-scoped metadata, immutable snapshots and diffs across launches with a bounded SQLiteData cache.
-- Run development, release automation and PTY checks entirely through Swift tools.
-- Use Catppuccin Latte, Frappé, Macchiato and Mocha in five languages.
-- Prepare signed, notarized macOS arm64/x86_64 archives for GitHub Releases; distribution remains unverified.
+- Convert the review workspace to a native Neovim plugin with a persistent Swift backend.
+- Restore difftastic structural alignment, directional changed tokens, combined root and narrow unified views with exact source coordinates.
+- Use normal immutable file buffers, native windows, motions, search and jumplists, including read-only LSP navigation to unchanged source.
+- Restore detailed PR/issue selection, metadata, checks/discussion, forge filters, presets, pagination and reviewed markers.
+- Add live FFF matching through configured MiniPick, stable editable draft IDs, single comments alongside pending reviews, and fresh permission-gated published thread actions.
+- Inherit user LSP activation, diagnostics, mappings and UI providers without a parallel client.
+- Preserve GitHub patch anchors, revision/account ownership and concrete single-use write previews.
+- Expose public Lua functions, configurable buffer mappings, User events and optional setup hooks.
+- Keep local source installation available; releases and publication remain paused.
