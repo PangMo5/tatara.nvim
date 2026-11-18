@@ -53,10 +53,13 @@ swift Scripts/Tatara.swift build release
 For a checkout you manage yourself, prepend it to `runtimepath` before startup plugin loading. This example also works after startup.
 
 ```lua
-vim.opt.runtimepath:prepend(vim.fn.expand('~/src/tatara.nvim'))
+local tatara = vim.fn.expand('~/src/tatara.nvim')
+vim.opt.runtimepath:prepend(tatara)
 vim.cmd.runtime('plugin/tatara.lua')
 require('tatara').setup({})
 ```
+
+To index help for a manual checkout, run `:helptags ~/src/tatara.nvim/doc` after adding it to the runtime path.
 
 The source runtime looks up the Release backend under `.artifacts/products/release-<architecture>/tatara`. If you supply a backend explicitly, point `setup({ backend = '/absolute/path/to/tatara' })` at a build compatible with the loaded runtime.
 

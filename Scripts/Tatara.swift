@@ -430,7 +430,8 @@ func installLocal(products: URL, prefix: URL) throws {
   )
   let bin = prefix.appendingPathComponent("bin")
   let share = prefix.appendingPathComponent("share/tatara")
-  let nativePackage = try nativePackageTarget(runtime: share.appendingPathComponent("runtime"))
+  let installedRuntime = share.appendingPathComponent("runtime")
+  let nativePackage = try nativePackageTarget(runtime: installedRuntime)
   try fm.createDirectory(at: bin, withIntermediateDirectories: true)
   try fm.createDirectory(at: share, withIntermediateDirectories: true)
   let staged = bin.appendingPathComponent(".tatara-\(UUID())")
@@ -452,10 +453,15 @@ func installLocal(products: URL, prefix: URL) throws {
     }
     try fm.copyItem(at: path(name), to: destination)
   }
-  try copyPlugin(to: share.appendingPathComponent("runtime"))
+  try copyPlugin(to: installedRuntime)
+  try run("nvim", ["--headless", "--clean", "-i", "NONE", "-c", "helptags doc", "-c", "qa"], cwd: installedRuntime)
+  try require(
+    fm.fileExists(atPath: installedRuntime.appendingPathComponent("doc/tags").path),
+    "Neovim did not generate help tags for the installed runtime.",
+  )
   try fm.createDirectory(at: nativePackage.deletingLastPathComponent(), withIntermediateDirectories: true)
   if !fm.fileExists(atPath: nativePackage.path) {
-    try fm.createSymbolicLink(at: nativePackage, withDestinationURL: share.appendingPathComponent("runtime"))
+    try fm.createSymbolicLink(at: nativePackage, withDestinationURL: installedRuntime)
   }
   let metadata: [String: Any] = try [
     "source": root.path,
