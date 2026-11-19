@@ -103,4 +103,6 @@ See [workspace design and Neovim adaptations](docs/NEOVIM_UX.md), [capability in
 
 ## Support development
 
-If you find tatara.nvim useful, you can [buy me a coffee](https://buymeacoffee.com/pangmo5) to support its development.
+If you find tatara.nvim useful, you can support its development with a coffee.
+
+<a href="https://buymeacoffee.com/pangmo5"><img src="https://pangmo5.dev/buy-me-a-coffee.png" alt="Support development on Buy Me a Coffee" width="144"></a>
