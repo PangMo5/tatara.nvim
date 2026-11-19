@@ -100,3 +100,7 @@ Default mappings are buffer-local and configurable; existing user buffer mapping
 Use `:checkhealth tatara` to inspect runtime dependencies. Set `materialize = false` in `open()` for an explicit source-only view without native file-backed LSP attachment.
 
 See [workspace design and Neovim adaptations](docs/NEOVIM_UX.md), [capability inventory and acceptance limits](docs/NEOVIM_PARITY.md), [configuration and extension points](docs/EXTENDING.md), [the backend protocol](docs/PROTOCOL.md), and [development](CONTRIBUTING.md).
+
+## Support development
+
+If you find tatara.nvim useful, you can [buy me a coffee](https://buymeacoffee.com/pangmo5) to support its development.
