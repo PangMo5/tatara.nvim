@@ -36,7 +36,7 @@ extension RPCValue {
 
 // MARK: - Backend
 
-/// One account/repository and immutable PR snapshot per editor connection.
+/// One repository and immutable review snapshot per editor connection.
 public actor Backend {
 
   // MARK: Lifecycle
@@ -57,7 +57,28 @@ public actor Backend {
       let repo: RepositoryID
       let client: ForgeClient
       let cache: CacheClient
-      if demo {
+      var local: LocalComparison?
+      if let base = params["localBase"]?.string {
+        guard
+          !demo,
+          params["repository"] == nil,
+          params["host"] == nil,
+          !base.isEmpty,
+          base.utf8.count <= 4096,
+          !base.utf8.contains(0)
+        else { throw TataraError(.configuration, detail: "Expected a local Git base revision.") }
+        let comparison = try await LocalComparison.discover(
+          source: params["source"]?.string ?? FileManager.default.currentDirectoryPath,
+          base: base,
+          includeWorktree: params["includeWorktree"]?.boolean ?? true,
+        )
+        local = comparison
+        source = comparison.root.path
+        repo = comparison.repository
+        client = comparison.client
+        cache = .disabled
+        account = "local"
+      } else if demo {
         let fixture = try await DemoRepository.create()
         demoRoot = fixture.root
         source = fixture.root.path
@@ -81,9 +102,14 @@ public actor Backend {
         reviewStore = try await ReviewSessionStore.open(at: demoRoot?.appendingPathComponent("state/reviews.sqlite"))
       }
       repository = repo
+      localComparison = local
       forge = client
       diff = Difftastic(forge: client, cache: cache).client
-      return try .encode(["protocol": "1", "repository": repo.description, "version": TataraVersion.current])
+      return try .encode([
+        "protocol": "1",
+        "repository": localComparison?.item.title ?? repo.description,
+        "version": TataraVersion.current,
+      ])
 
     case "pulls":
       let (repo, client) = try connection()
@@ -133,6 +159,7 @@ public actor Backend {
       let (repo, client) = try connection()
       guard let number = params["number"]?.integer, number > 0 else { throw TataraError(.invalidResponse) }
       let kind = ItemKind(rawValue: params["kind"]?.string ?? "pullRequest") ?? .pullRequest
+      guard kind != .localComparison else { throw TataraError(.invalidResponse) }
       let item = ForgeItem(
         id: .init(repository: repo, number: number),
         kind: kind,
@@ -155,10 +182,15 @@ public actor Backend {
           selectionPending = false
         }
       }
-      await progress("Loading pull request")
+      await progress(localComparison == nil ? "Loading pull request" : "Loading local changes")
       let item: ForgeItem
       let kind = ItemKind(rawValue: params["kind"]?.string ?? "pullRequest") ?? .pullRequest
-      if let number = params["number"]?.integer {
+      if let localComparison {
+        guard kind == .localComparison, params["number"] == nil else { throw TataraError(.invalidResponse) }
+        item = localComparison.item
+      } else if kind == .localComparison {
+        throw TataraError(.invalidResponse)
+      } else if let number = params["number"]?.integer {
         guard number > 0 else { throw TataraError(.invalidResponse) }
         item = .init(
           id: .init(repository: repo, number: number),
@@ -178,11 +210,11 @@ public actor Backend {
       guard generation == epoch else { throw CancellationError() }
       guard loaded.item.kind == .issue || loaded.revision != nil else { throw TataraError(
         .incompleteResponse,
-        detail: "The pull request has no immutable revision.",
+        detail: "The review has no immutable revision.",
       ) }
       guard loaded.item.id == item.id else { throw TataraError(
         .invalidResponse,
-        detail: "The forge returned another pull request.",
+        detail: "The review source returned another item.",
       ) }
       let restored = try await savedReviews().load(ReviewSessionIdentity(account: account, detail: loaded))
       guard generation == epoch else { throw CancellationError() }
@@ -201,12 +233,15 @@ public actor Backend {
 
     case "refresh":
       let (repo, client) = try connection()
-      guard let current = detail else { throw TataraError(.unavailable) }
+      guard let current = detail, !selectionPending else { throw TataraError(.unavailable) }
+      let epoch = generation
       try await client.invalidate(repo)
       let updated = try await client.detail(current.item)
-      guard detail?.item.id == current.item.id, detail?.revision == current.revision else { throw CancellationError() }
+      try Task.checkCancellation()
+      guard generation == epoch, !selectionPending else { throw CancellationError() }
       let restored = try await savedReviews().load(ReviewSessionIdentity(account: account, detail: updated))
-      guard detail?.item.id == current.item.id, detail?.revision == current.revision else { throw CancellationError() }
+      try Task.checkCancellation()
+      guard generation == epoch, !selectionPending else { throw CancellationError() }
       generation += 1
       detail = updated
       sessionState = restored
@@ -235,10 +270,12 @@ public actor Backend {
         revision: revision,
         file: file,
       ))
-      async let old: Data = file.status == "added"
+      async let old: Data = file.isNonSource == true || file.status == "added"
         ? Data()
         : client.content(current.item.id.repository, revision.mergeBase, file.previousPath ?? path)
-      async let new: Data = file.status == "removed" ? Data() : client.content(current.item.id.repository, revision.head, path)
+      async let new: Data = file.isNonSource == true || file.status == "removed"
+        ? Data()
+        : client.content(current.item.id.repository, revision.head, path)
       let (before, after, structural) = try await (old, new, rendered)
       guard generation == epoch else { throw CancellationError() }
       let location = try structural.firstChange()
@@ -253,7 +290,7 @@ public actor Backend {
           context: context,
           configuration: configuration,
           profile: profile,
-          scope: "github:\(current.item.id.repository.host):\(account)",
+          scope: scope(current.item.id.repository),
           cacheDirectory: demoRoot?.appendingPathComponent("state"),
           configureBuildSettings: false,
         )
@@ -283,7 +320,7 @@ public actor Backend {
             context: beforeContext,
             configuration: configuration,
             profile: profile,
-            scope: "github:\(current.item.id.repository.host):\(account)",
+            scope: scope(current.item.id.repository),
             cacheDirectory: demoRoot?.appendingPathComponent("state"),
             configureBuildSettings: false,
           )
@@ -454,13 +491,27 @@ public actor Backend {
       try await reloadState(current)
       let identity = ReviewSessionIdentity(account: account, detail: current)
       if params["format"]?.string == "json" {
-        return .object(["schema": .number(1), "identity": try .encode(identity), "review": try .encode(sessionState)])
+        var export: [String: RPCValue] = [
+          "schema": .number(1),
+          "identity": try .encode(identity),
+          "review": try .encode(sessionState),
+        ]
+        if case .localComparison(let comparison) = current.metadata {
+          export["comparison"] = try .encode(comparison)
+          export["sourcePaths"] = .object(Dictionary(uniqueKeysWithValues: sessionState.drafts.map { draft in
+            let comment = draft.comment
+            let path = comment.side == .left ? current.file(at: comment.path)?.previousPath ?? comment.path : comment.path
+            return (draft.id, .string(path))
+          }))
+        }
+        return .object(export)
       }
       guard params["format"]?.string == nil || params["format"]?.string == "markdown" else { throw TataraError(.invalidResponse) }
-      return .string(ReviewExport.markdown(identity: identity, state: sessionState))
+      return .string(ReviewExport.markdown(identity: identity, state: sessionState, detail: current))
 
     case "review.preview":
       let current = try owned(params)
+      guard localComparison == nil else { throw TataraError(.unavailable) }
       guard let event = ReviewEvent(rawValue: params["event"]?.string ?? "COMMENT") else { throw TataraError(.invalidResponse) }
       guard current.item.kind == .pullRequest || event == .comment else { throw TataraError(.invalidResponse) }
       try await reloadState(current)
@@ -578,6 +629,7 @@ public actor Backend {
 
     case "write.confirm":
       let current = try owned(params)
+      guard localComparison == nil else { throw TataraError(.unavailable) }
       let id = try params.required("preview")
       guard let preview = previews.removeValue(forKey: id), preview.generation == generation else { throw TataraError(
         .revisionChanged,
@@ -646,6 +698,7 @@ public actor Backend {
   private var forge: ForgeClient?
   private var diff: DiffClient?
   private var account = ""
+  private var localComparison: LocalComparison?
   private var detail: ItemDetail?
   private var generation = 0
   private var selectionPending = false
@@ -788,6 +841,10 @@ public actor Backend {
     return (repository, forge)
   }
 
+  private func scope(_ repository: RepositoryID) -> String {
+    "\(repository.forge.rawValue):\(repository.host):\(account)"
+  }
+
   private func owned(_ params: RPCValue) throws -> ItemDetail {
     guard
       !selectionPending,
@@ -804,10 +861,9 @@ public actor Backend {
       comment.body.utf8.count <= 65536,
       !comment.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
       let file = current.file(at: comment.path),
-      ReviewAnchor.contains(
+      file.anchors.contains(
         range: (comment.startLine ?? comment.line)...max(comment.startLine ?? comment.line, comment.line),
         side: comment.side,
-        patch: file.patch,
       ),
       (comment.startLine ?? comment.line) <= comment.line
     else { throw TataraError(.invalidLine) }

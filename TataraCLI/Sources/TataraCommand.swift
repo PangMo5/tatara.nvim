@@ -26,6 +26,10 @@ struct TataraCommand: AsyncParsableCommand {
   var repo: String?
   @Option var host: String?
   @Option var number: Int?
+  @Option(help: "Review local changes since the merge base with this revision.")
+  var localBase: String?
+  @Flag(inversion: .prefixedNo, help: "Include saved worktree changes in the local comparison (default).")
+  var worktree: Bool?
   @Option(help: "Plugin runtime directory (development override).")
   var runtime: String?
   @Flag var demo = false
@@ -71,12 +75,22 @@ struct TataraCommand: AsyncParsableCommand {
     if current, list || issues || repo != nil {
       throw ValidationError("--current cannot be combined with --list, --issues or --repo.")
     }
+    if let localBase, localBase.isEmpty || current || list || issues || repo != nil || host != nil || number != nil || demo {
+      throw ValidationError("--local-base requires a Git revision and cannot be combined with a forge or demo selection.")
+    }
+    if worktree != nil, localBase == nil {
+      throw ValidationError("--worktree and --no-worktree require --local-base.")
+    }
   }
 
   func run() async throws {
     var options = [String: RPCValue]()
     options["list"] = .bool(list || ((issues || repo != nil) && number == nil))
     options["kind"] = .string(issues ? "issue" : "pullRequest")
+    if let localBase {
+      options["local_base"] = .string(localBase)
+      options["include_worktree"] = worktree.map(RPCValue.bool)
+    }
     if reduceMotion || stableOutput || accessible {
       options["reduce_motion"] = .bool(true)
     }

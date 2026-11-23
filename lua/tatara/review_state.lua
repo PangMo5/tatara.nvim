@@ -330,19 +330,11 @@ return function(Session)
       for _, item in ipairs(items) do
         local identity = item.identity
         local row = #lines + 1
+        local title = self.opts.local_base and t('Local review') or ('#' .. identity.number)
         local block = {
-          '#'
-            .. identity.number
-            .. ' · '
-            .. identity.head:sub(1, 8)
-            .. ' · '
-            .. t('Pending')
-            .. ' '
-            .. item.drafts
-            .. ' · '
-            .. t('Reviewed')
-            .. ' '
-            .. item.reviewed,
+          title .. ' · ' .. identity.head:sub(1, 8) .. ' · ' .. t('Pending') .. ' ' .. item.drafts .. ' · ' .. t(
+            'Reviewed'
+          ) .. ' ' .. item.reviewed,
           item.excerpt:gsub('\n', ' '),
           '',
         }
@@ -379,8 +371,8 @@ return function(Session)
         end
         self:select({ t('Delete'), t('Cancel') }, {
           prompt = t('Saved reviews')
-            .. ' · #'
-            .. item.identity.number
+            .. ' · '
+            .. (self.opts.local_base and t('Local review') or ('#' .. item.identity.number))
             .. ' · '
             .. item.identity.head:sub(1, 8)
             .. ' · '

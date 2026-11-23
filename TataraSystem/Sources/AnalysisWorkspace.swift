@@ -26,20 +26,31 @@ public struct AnalysisWorkspace: Equatable, Sendable {
     progress: @Sendable (AnalysisPhase) async -> Void = { _ in },
   ) async throws -> Self {
     await progress(.preparingCheckout)
+    let repository = context.item.repository
+    let runner = repository.forge == .local ? LocalComparison.offlineRunner(runner) : runner
     let requestedSource = configuration.repositoryDirectory ?? FileManager.default.currentDirectoryPath
     let root = try await runner.checked("git", ["-C", requestedSource, "rev-parse", "--show-toplevel"])
-    let source = root.text.trimmingCharacters(in: .whitespacesAndNewlines)
-    let remotes = try await runner.checked("git", ["-C", source, "config", "--get-regexp", "^remote\\..*\\.url$"])
-    let matches = remotes.text.split(separator: "\n").contains { line in
-      guard let space = line.firstIndex(where: \.isWhitespace) else { return false }
-      return LocalGitReader.matchesRemote(String(line[line.index(after: space)...]), repository: context.item.repository)
+    let source = String(decoding: root.output.dropLast(), as: UTF8.self)
+    let matches: Bool
+    switch repository.forge {
+    case .local:
+      let common = try await runner.checked("git", ["-C", source, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+      matches = try LocalComparison
+        .identity(gitDirectory: String(decoding: common.output.dropLast(), as: UTF8.self)) == repository
+
+    case .github:
+      let remotes = try await runner.checked("git", ["-C", source, "config", "--get-regexp", "^remote\\..*\\.url$"])
+      matches = remotes.text.split(separator: "\n").contains { line in
+        guard let space = line.firstIndex(where: \.isWhitespace) else { return false }
+        return LocalGitReader.matchesRemote(String(line[line.index(after: space)...]), repository: repository)
+      }
     }
     guard matches else { throw TataraError(
       .configuration,
-      detail: "The analysis repository does not match the reviewed forge, host and repository. Configure analysis.repository_directory.",
+      detail: "The analysis repository does not match the reviewed repository. Configure analysis.repository_directory.",
     ) }
     let commit = context.commit
-    guard commit.count == 40, commit.allSatisfy(\.isHexDigit) else { throw TataraError(
+    guard LocalComparison.isObjectID(commit) else { throw TataraError(
       .invalidResponse,
       detail: "Analysis requires an exact commit identity.",
     ) }
@@ -153,7 +164,7 @@ public struct AnalysisWorkspace: Equatable, Sendable {
       .invalidResponse,
       detail: "Analysis location escaped its immutable checkout.",
     ) }
-    let entry = try await runner.checked("git", ["-C", directory.path, "ls-tree", commit, "--", path])
+    let entry = try await runner.checked("git", ["-C", directory.path, "--literal-pathspecs", "ls-tree", commit, "--", path])
     guard entry.text.hasPrefix("100644 ") || entry.text.hasPrefix("100755 ") else {
       throw TataraError(
         .unavailable,

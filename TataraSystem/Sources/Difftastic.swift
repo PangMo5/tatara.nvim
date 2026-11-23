@@ -29,6 +29,16 @@ public actor Difftastic {
 
   public func render(_ request: DiffRequest) async throws -> ReviewDiff {
     try Task.checkCancellation()
+    if request.file.isNonSource == true {
+      return ReviewDiff(
+        path: request.file.path,
+        language: "Binary",
+        status: "binary",
+        rows: [],
+        revision: request.revision,
+        previousPath: request.file.previousPath,
+      )
+    }
     if engineVersion == nil {
       let version = try await versions.value(for: "version") { [runner] in
         try await runner.checked("difft", ["--version"]).text

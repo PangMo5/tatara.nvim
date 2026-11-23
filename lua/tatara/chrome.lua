@@ -146,17 +146,9 @@ local function tabline(s)
   if s.opts.demo and vim.o.columns >= 120 then
     title = title .. ' %#TataraMuted#' .. escape(C.text('DEMO · synthetic data')) .. '%#TataraHeader#'
   end
-  local current = (s.mode == 'combined' or s.mode == 'unified' or s.mode == 'source') and 'diff' or s.mode
+  local current = s:current_view()
   local items = {}
-  for index, item in ipairs({
-    { 'overview', 'Overview' },
-    { 'diff', 'Diff' },
-    { 'discussion', 'Discussion' },
-    {
-      'checks',
-      'Checks',
-    },
-  }) do
+  for index, item in ipairs(s:views()) do
     M.actions[index] = function()
       if s.writing then
         return
@@ -182,8 +174,7 @@ local function tabline(s)
   return title
     .. '%#TataraHeader#%='
     .. table.concat(items, ' ')
-    .. '  #'
-    .. (s.detail and s.detail.item.id.number or '')
+    .. (s.opts.local_base and '  ' or ('  #' .. (s.detail and s.detail.item.id.number or '')))
     .. ' '
 end
 _G.__tatara_view_click = function(id)
@@ -213,11 +204,13 @@ local function hints(s)
   local keys = C.get().keymaps
   local entries = {
     { 'comment', 'Comment' },
-    { 'review', 'Finish review' },
-    { 'pick', 'Select a pull request' },
+    { 'review', s.opts.local_base and 'Local comments' or 'Finish review' },
     { 'grep', 'Search file contents' },
     { 'comments', 'Comments' },
   }
+  if not s.opts.local_base then
+    table.insert(entries, 3, { 'pick', 'Select a pull request' })
+  end
   local text = {}
   for _, entry in ipairs(entries) do
     if keys[entry[1]] then
@@ -244,9 +237,7 @@ function M.refresh(s, bars)
       style(s.summary_win)
       header(
         s.summary_win,
-        C.text(s.detail and s.detail.item.kind == 'issue' and 'Current issue' or 'Current pull request')
-          .. ' · '
-          .. (C.get().keymaps.pick or ''),
+        s:summary_title() .. (s.opts.local_base and '' or (' · ' .. (C.get().keymaps.pick or ''))),
         '',
         current == s.summary_win
       )
@@ -301,7 +292,7 @@ function M.refresh(s, bars)
             formatted = formatted .. '%#' .. (win == current and 'TataraFocus' or 'TataraMuted') .. '# · ' .. side
           end
         end
-        if s.form and s.form.kind == 'review' and api.nvim_win_get_buf(win) == s.form.buf then
+        if not s.opts.local_base and s.form and s.form.kind == 'review' and api.nvim_win_get_buf(win) == s.form.buf then
           local parts = { escape(C.text('Finish review')) .. ' · ' }
           for index, event in ipairs({ 'Comment', 'Approve', 'Request changes' }) do
             M.actions[100 + index] = function()

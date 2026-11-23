@@ -34,6 +34,7 @@ public enum ContentSearchService {
       var total = 0
       func enqueue(_ index: Int, _ file: ChangedFile) {
         group.addTask {
+          guard file.isNonSource != true else { return (index, nil, 0) }
           let side: InlineComment.Side = file.status == "removed" ? .left : .right
           let data = try await forge.content(
             detail.item.id.repository,

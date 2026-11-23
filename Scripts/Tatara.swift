@@ -591,6 +591,7 @@ do {
     try run("nvim", ["--headless", "--clean", "--cmd", "set rtp^=" + root.path, "-l", "tests/nvim/session_restore.lua"])
     try run("nvim", ["--headless", "--clean", "--cmd", "set rtp^=" + root.path, "-l", "tests/nvim/sidebar.lua"])
     try run("nvim", ["--headless", "--clean", "--cmd", "set rtp^=" + root.path, "-l", "tests/nvim/review_workflow.lua"])
+    try run("nvim", ["--headless", "--clean", "--cmd", "set rtp^=" + root.path, "-l", "tests/nvim/local_review.lua"])
 
   case "version": print(try version())
 

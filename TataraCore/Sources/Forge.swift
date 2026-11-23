@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - ForgeKind
 
-public enum ForgeKind: String, Codable, Sendable { case github }
+public enum ForgeKind: String, Codable, Sendable { case github, local }
 
 // MARK: - RepositoryID
 
@@ -48,7 +48,7 @@ public struct RepositoryID: Hashable, Codable, Sendable, CustomStringConvertible
 
 // MARK: - ItemKind
 
-public enum ItemKind: String, Codable, CaseIterable, Sendable { case pullRequest, issue }
+public enum ItemKind: String, Codable, CaseIterable, Sendable { case pullRequest, issue, localComparison }
 
 // MARK: - ItemState
 
@@ -335,6 +335,21 @@ public struct DiscussionAnchor: Equatable, Codable, Sendable {
 /// GitHub semantics remain typed; a future GitLab adapter adds its own case.
 public enum ForgeMetadata: Equatable, Codable, Sendable {
   case github(GitHubMetadata)
+  case localComparison(LocalComparisonMetadata)
+}
+
+// MARK: - LocalComparisonMetadata
+
+public struct LocalComparisonMetadata: Equatable, Codable, Sendable {
+  public init(base: String, head: String, worktreeParent: String? = nil) {
+    self.base = base
+    self.head = head
+    self.worktreeParent = worktreeParent
+  }
+
+  public let base: String
+  public let head: String
+  public let worktreeParent: String?
 }
 
 // MARK: - GitHubMetadata
@@ -479,6 +494,7 @@ public struct ChangedFile: Identifiable, Equatable, Codable, Sendable {
     additions: Int = 0,
     deletions: Int = 0,
     patch: String? = nil,
+    isNonSource: Bool? = nil,
   ) {
     self.path = path
     self.previousPath = previousPath
@@ -486,6 +502,7 @@ public struct ChangedFile: Identifiable, Equatable, Codable, Sendable {
     self.additions = additions
     self.deletions = deletions
     self.patch = patch
+    self.isNonSource = isNonSource
     anchors = ReviewAnchorIndex(patch: patch)
   }
 
@@ -498,6 +515,7 @@ public struct ChangedFile: Identifiable, Equatable, Codable, Sendable {
       additions: values.decode(Int.self, forKey: .additions),
       deletions: values.decode(Int.self, forKey: .deletions),
       patch: values.decodeIfPresent(String.self, forKey: .patch),
+      isNonSource: values.decodeIfPresent(Bool.self, forKey: .isNonSource),
     )
   }
 
@@ -509,6 +527,7 @@ public struct ChangedFile: Identifiable, Equatable, Codable, Sendable {
   public var additions: Int
   public var deletions: Int
   public let patch: String?
+  public let isNonSource: Bool?
   public let anchors: ReviewAnchorIndex
 
   public var id: String {
@@ -517,7 +536,7 @@ public struct ChangedFile: Identifiable, Equatable, Codable, Sendable {
 
   // MARK: Private
 
-  private enum CodingKeys: String, CodingKey { case path, previousPath, status, additions, deletions, patch }
+  private enum CodingKeys: String, CodingKey { case path, previousPath, status, additions, deletions, patch, isNonSource }
 
 }
 

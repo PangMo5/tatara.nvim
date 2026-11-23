@@ -125,7 +125,12 @@ function M.comments()
   active():comments()
 end
 function M.list(opts)
-  active():list(opts)
+  local session = active()
+  if session.opts.local_base then
+    M.start(vim.tbl_extend('force', { list = true, cwd = session.opts.cwd }, opts or {}))
+  else
+    session:list(opts)
+  end
 end
 for _, action in ipairs({
   'combined',
@@ -173,11 +178,30 @@ function M.command(args)
   local action = words[1]
   if not action or tonumber(action) then
     local ok, session = pcall(active)
-    if ok then
-      session:open_pr(tonumber(action))
+    if ok and not session.opts.local_base then
+      session:open_item(tonumber(action))
     else
       M.start({ number = tonumber(action) })
     end
+    return
+  end
+  if action == 'local' then
+    local flag = words[3]
+    if
+      not words[2]
+      or vim.startswith(words[2], '--')
+      or #words > 3
+      or (flag and flag ~= '--worktree' and flag ~= '--no-worktree')
+    then
+      local config = require('tatara.config')
+      config.notify(config.text('Usage: :Tatara local <base> [--no-worktree]'), vim.log.levels.ERROR)
+      return
+    end
+    local opts = { local_base = words[2] }
+    if flag then
+      opts.include_worktree = flag == '--worktree'
+    end
+    M.start(opts)
     return
   end
   if action == 'demo' then
@@ -187,7 +211,7 @@ function M.command(args)
   if action == 'list' or action == 'issues' then
     local ok, session = pcall(active)
     if ok then
-      session:list({ kind = action == 'issues' and 'issue' or 'pullRequest' })
+      M.list({ kind = action == 'issues' and 'issue' or 'pullRequest' })
     else
       M.start({ list = true, kind = action == 'issues' and 'issue' or 'pullRequest' })
     end

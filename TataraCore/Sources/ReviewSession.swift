@@ -178,8 +178,27 @@ public struct ReviewHunk: Codable, Equatable, Sendable {
 // MARK: - ReviewExport
 
 public enum ReviewExport {
-  public static func markdown(identity: ReviewSessionIdentity, state: ReviewSessionState) -> String {
-    var result = "# Review · \(identity.repository.slug)#\(identity.number)\n\n"
+
+  // MARK: Public
+
+  public static func markdown(
+    identity: ReviewSessionIdentity,
+    state: ReviewSessionState,
+    detail: ItemDetail? = nil,
+  ) -> String {
+    var result: String
+    let local = identity.kind == .localComparison
+    if local, let detail, case .localComparison(let comparison) = detail.metadata {
+      result = "# Local review · \(code(detail.item.title))\n\n"
+      result += "Use these notes as review feedback. Verify each location against the given commit before making changes.\n\n"
+      let head = comparison.worktreeParent == nil ? code(comparison.head) : "worktree snapshot"
+      result += "Comparison: \(code(comparison.base))…\(head)\n"
+      if let parent = comparison.worktreeParent {
+        result += "Branch HEAD at capture: \(parent)\n"
+      }
+    } else {
+      result = "# Review · \(identity.repository.slug)#\(identity.number)\n\n"
+    }
     result += "Head: \(identity.head)\nMerge base: \(identity.mergeBase)\n\n"
     if !state.summary.isEmpty {
       result += state.summary + "\n\n"
@@ -187,10 +206,30 @@ public enum ReviewExport {
     for (index, draft) in state.drafts.enumerated() {
       let comment = draft.comment
       let range = comment.startLine.map { "\($0)-\(comment.line)" } ?? "\(comment.line)"
-      result += "## \(index + 1). \(comment.path):\(range) · \(comment.side.rawValue)\n\n\(comment.body)\n\n"
+      if local, let detail {
+        let path = comment.side == .left ? detail.file(at: comment.path)?.previousPath ?? comment.path : comment.path
+        let side = comment.side == .left ? "LEFT (merge base)" : "RIGHT (head)"
+        result += "## \(index + 1). \(code(path + ":" + range)) · \(side)\n\n"
+        if path != comment.path {
+          result += "Renamed to \(code(comment.path)).\n\n"
+        }
+      } else {
+        result += "## \(index + 1). \(comment.path):\(range) · \(comment.side.rawValue)\n\n"
+      }
+      result += comment.body + "\n\n"
     }
     return result
   }
+
+  // MARK: Private
+
+  private static func code(_ value: String) -> String {
+    let text = value.contains(where: \.isNewline) ? String(reflecting: value) : value
+    var fence = "`"
+    while text.contains(fence) { fence += "`" }
+    return fence + " " + text + " " + fence
+  }
+
 }
 
 // MARK: - SavedReviewSummary

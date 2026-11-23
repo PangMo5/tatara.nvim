@@ -23,13 +23,18 @@ return function(Session)
     if self.form ~= form then
       return
     end
+    local title = t(self.opts.local_base and 'Local comments' or 'Pending review')
+    local hints = 'Enter · ' .. t('Edit') .. '   d · ' .. t('Remove') .. '   o · ' .. t('Open file')
+    if self.opts.local_base then
+      hints = hints .. '   y · ' .. t('Copy review for AI')
+    end
     if not form.list_buf then
       form.list_buf = api.nvim_create_buf(false, true)
       api.nvim_buf_set_name(form.list_buf, 'tatara://' .. self.id .. '/review-drafts')
       vim.bo[form.list_buf].bufhidden = 'hide'
       vim.b[form.list_buf].tatara_dialog = {
-        title = t('Pending review'),
-        hints = 'Enter · ' .. t('Edit') .. '   d · ' .. t('Remove') .. '   o · ' .. t('Open file'),
+        title = title,
+        hints = hints,
       }
       local function current()
         return self.draft[api.nvim_win_get_cursor(0)[1]]
@@ -91,6 +96,11 @@ return function(Session)
         require('tatara.forms').close(self, false)
         self:open_file(item.path, { side = item.side, line = item.line, native = true })
       end, { buffer = form.list_buf, desc = 'Tatara: pending comment source' })
+      if self.opts.local_base then
+        vim.keymap.set('n', 'y', function()
+          self:export_review('markdown', 'clipboard')
+        end, { buffer = form.list_buf, desc = 'Tatara: copy review for AI' })
+      end
     end
     local lines = {}
     for _, item in ipairs(self.draft) do
@@ -116,12 +126,7 @@ return function(Session)
     end
     api.nvim_win_set_height(form.windows.drafts, math.max(3, math.min(7, #lines + 1)))
     local win = form.windows.drafts
-    require('tatara.chrome').panel(
-      self,
-      win,
-      t('Pending review') .. ' · ' .. #self.draft,
-      'Enter · ' .. t('Edit') .. '   d · ' .. t('Remove') .. '   o · ' .. t('Open file')
-    )
+    require('tatara.chrome').panel(self, win, title .. ' · ' .. #self.draft, hints)
   end
   function Session:review()
     if not self.detail or self.opening then
@@ -135,11 +140,11 @@ return function(Session)
     form = require('tatara.forms').open(
       self,
       'review',
-      t('Finish review'),
+      t(self.opts.local_base and 'Local comments' or 'Finish review'),
       (self.review_state or {}).summary or '',
       'review',
       function(body, state)
-        local event = ({ 'COMMENT', 'APPROVE', 'REQUEST_CHANGES' })[state.event]
+        local event = self.opts.local_base and 'COMMENT' or ({ 'COMMENT', 'APPROVE', 'REQUEST_CHANGES' })[state.event]
         self:call(
           'review.summary',
           { body = body, event = event, head = state.head, number = state.number, mergeBase = state.mergeBase },
@@ -149,6 +154,11 @@ return function(Session)
             end
             self:apply_review_state(saved)
             self:render_review_drafts(state)
+            if self.opts.local_base then
+              self.composer_drafts[state.cache] = nil
+              C.notify(t('Saved'))
+              return
+            end
             self:call('review.preview', {
               event = ({ 'COMMENT', 'APPROVE', 'REQUEST_CHANGES' })[state.event],
               body = body,
@@ -165,6 +175,18 @@ return function(Session)
         )
       end
     )
+    if self.opts.local_base then
+      form.render = function()
+        self:render_review_drafts(form)
+      end
+      form.render()
+      vim.b[form.buf].tatara_dialog = {
+        title = t('Local comments'),
+        hints = ':write · ' .. t('Save') .. '   Esc · ' .. t('Back'),
+      }
+      require('tatara.chrome').refresh(self, true)
+      return
+    end
     self.review_events = self.review_events or {}
     form.event = self.review_events[form.cache]
       or ({ COMMENT = 1, APPROVE = 2, REQUEST_CHANGES = 3 })[(self.review_state or {}).event]
@@ -365,6 +387,10 @@ return function(Session)
     if not self.detail then
       return
     end
+    if self.opts.local_base then
+      self:drafts()
+      return
+    end
     local source = at_cursor and self:source_at_cursor()
     if not source then
       self:discussion()
@@ -389,6 +415,10 @@ return function(Session)
   end
   function Session:discussion()
     if not self.detail then
+      return
+    end
+    if self.opts.local_base then
+      self:drafts()
       return
     end
     local lines = { '# ' .. t('Discussion'), '' }

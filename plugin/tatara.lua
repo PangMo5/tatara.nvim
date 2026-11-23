@@ -18,8 +18,12 @@ vim.api.nvim_create_user_command('Tatara', function(args)
 end, {
   nargs = '*',
   range = true,
-  complete = function()
+  complete = function(arglead, cmdline)
+    if cmdline:match('Tatara%s+local%s+%S+%s') then
+      return vim.startswith('--no-worktree', arglead) and { '--no-worktree' } or {}
+    end
     return {
+      'local',
       'list',
       'issues',
       'close',
@@ -53,5 +57,5 @@ end, {
       'refresh',
     }
   end,
-  desc = 'Review a pull request with native Neovim buffers',
+  desc = 'Review a GitHub pull request or local Git comparison with native Neovim buffers',
 })

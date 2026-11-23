@@ -93,14 +93,16 @@ function Session.new(opts)
   api.nvim_create_autocmd('WinClosed', {
     group = self.group,
     callback = function(event)
-      if self.closed or self.internal_layout then
+      local win = tonumber(event.match)
+      if self.closed or self.internal_layout or self.closing_content_win == win then
         return
       end
-      if tonumber(event.match) == self.files_win then
+      if win == self.files_win then
         self.sidebar_hidden = true
-      end
-      if tonumber(event.match) == self.summary_win then
+      elseif win == self.summary_win then
         self.summary_hidden = true
+      elseif win == self.left_win or win == self.right_win then
+        self:remember_content_window(win)
       end
     end,
   })
@@ -117,7 +119,12 @@ function Session.new(opts)
   api.nvim_create_autocmd('BufEnter', {
     group = self.group,
     callback = function(event)
-      if self.closed or self.applying_file or api.nvim_get_current_tabpage() ~= self.tab then
+      if
+        self.closed
+        or self.applying_file
+        or self.pending_content_windows
+        or api.nvim_get_current_tabpage() ~= self.tab
+      then
         return
       end
       local win = api.nvim_get_current_win()
@@ -171,7 +178,7 @@ function Session.new(opts)
         vim.wo[win].winbar = ' %f'
         local other = win == self.left_win and self.right_win or self.left_win
         if valid(other) then
-          local ok = pcall(api.nvim_win_close, other, false)
+          local ok = pcall(self.close_content_window, self, other, false)
           if ok then
             self.right_win = win
             self.left_win = nil
@@ -184,7 +191,7 @@ function Session.new(opts)
   api.nvim_create_autocmd({ 'VimResized', 'WinResized', 'TabEnter' }, {
     group = self.group,
     callback = function()
-      if not self.closed and api.nvim_get_current_tabpage() == self.tab then
+      if not self.closed and not self.pending_content_windows and api.nvim_get_current_tabpage() == self.tab then
         local old_narrow = self.narrow
         local source_win = valid(self.active_source_win) and self.active_source_win or self.right_win
         local position = valid(source_win)
@@ -382,6 +389,7 @@ function Session.new(opts)
       if
         C.get().layout.preview_on_focus
         and not self.applying_file
+        and not self.pending_content_windows
         and api.nvim_get_current_win() == self.files_win
       then
         local node = self.rows[api.nvim_win_get_cursor(self.files_win)[1]]
@@ -406,19 +414,23 @@ function Session.new(opts)
   require('tatara.chrome').attach(self)
   replace(self.files_buf, { t('Loading…') })
   self:layout()
-  self:call(
-    'initialize',
-    { repository = opts.repository, host = opts.host, demo = opts.demo, source = opts.cwd },
-    function(value)
-      self.repository = value.repository
-      if opts.list then
-        self:list({ kind = opts.kind })
-      else
-        self:open_pr(opts.number, opts.kind)
-      end
-    end,
-    false
-  )
+  self:call('initialize', {
+    repository = opts.repository,
+    host = opts.host,
+    demo = opts.demo,
+    source = opts.cwd,
+    localBase = opts.local_base,
+    includeWorktree = opts.include_worktree,
+  }, function(value)
+    self.repository = value.repository
+    if opts.local_base then
+      self:open_item(nil, 'localComparison')
+    elseif opts.list then
+      self:list({ kind = opts.kind })
+    else
+      self:open_item(opts.number, opts.kind)
+    end
+  end, false)
   return self
 end
 
@@ -451,6 +463,7 @@ function Session:context()
   return {
     windows = { files = self.files_win, summary = self.summary_win, left = self.left_win, right = self.right_win },
     repository = self.repository,
+    kind = self.detail and self.detail.item.kind,
     number = self.detail and self.detail.item.id.number,
     head = self.detail and self:revision().head,
     merge_base = self.detail and self:revision().mergeBase,
@@ -497,7 +510,7 @@ function Session:call(method, params, done, owned, on_error)
   local number = self.detail and self.detail.item.id.number
   local request_id
   self.status = t(({
-    open = 'Loading pull request',
+    open = self.opts.local_base and 'Loading local changes' or 'Loading pull request',
     file = 'Preparing immutable files',
     pulls = 'Loading…',
     inspect = 'Loading details…',
@@ -508,9 +521,10 @@ function Session:call(method, params, done, owned, on_error)
     ['write.confirm'] = 'Submitting…',
   })[method] or 'Loading…')
   request_id = self.rpc:request(method, params, function(value, err)
-    if self.closed then
+    if self.closed or not api.nvim_tabpage_is_valid(self.tab) then
       return
     end
+    self:restore_content_windows()
     self:finish_progress(request_id, err and 'failed' or 'success')
     if
       owned ~= false
@@ -719,14 +733,23 @@ function Session:common_maps(buf)
       self:jump_comment(-1)
     end,
     wrap = function()
-      self.wrap = self.wrap == false
-      for _, win in pairs({ self.left_win, self.right_win }) do
+      local windows = { self.left_win, self.right_win }
+      local wrap
+      if self.mode == 'diff' and self.source_has_long_lines and valid(self.right_win) then
+        wrap = not vim.wo[self.right_win].wrap
+      else
+        self.wrap = not self.wrap
+        wrap = self.wrap
+      end
+      for _, win in pairs(windows) do
         if valid(win) then
-          vim.wo[win].wrap = self.wrap
+          vim.wo[win].wrap = wrap
         end
       end
-      if self.current_buffers and valid(self.left_win) then
-        Diff.reflow(self.current_buffers, { self.left_win, self.right_win })
+      if self.projection_paired and (self.mode == 'combined' or self.mode == 'unified') then
+        Diff.reflow(self.projection_buffers, windows)
+      elseif self.mode == 'diff' and self.current_buffers then
+        Diff.reflow(self.current_buffers, windows)
       end
     end,
     next_pane = function()
@@ -736,6 +759,13 @@ function Session:common_maps(buf)
       vim.cmd('wincmd W')
     end,
   }
+  if self.opts.local_base then
+    actions.pick = nil
+    actions.checks = nil
+    actions.browser = nil
+    actions.filters = nil
+    actions.file_comment = nil
+  end
   for action, callback in pairs(actions) do
     self:map(buf, 'n', action, callback)
   end
@@ -875,6 +905,7 @@ function Session:open_file(path, target)
         end
         api.nvim_win_set_buf(self.left_win, left)
         api.nvim_win_set_buf(self.right_win, right)
+        self.source_has_long_lines = Diff.has_long_lines(result.before) or Diff.has_long_lines(result.after)
         for win, side in pairs({ [self.left_win] = 'LEFT', [self.right_win] = 'RIGHT' }) do
           api.nvim_win_call(win, function()
             local workspace = side == 'LEFT' and result.baseWorkspace or result.workspace
@@ -890,6 +921,7 @@ function Session:open_file(path, target)
           if C.get().diff.engine == 'native' then
             vim.wo[win].foldmethod = 'diff'
           end
+          vim.wo[win].wrap = self.wrap and not self.source_has_long_lines
           local label = side == 'LEFT' and not null(result.previousPath) and result.previousPath or path
           vim.wo[win].winbar = ' ' .. label:gsub('%%', '%%%%') .. ' · ' .. side .. ' · ' .. result.head:sub(1, 8)
         end
@@ -910,13 +942,11 @@ function Session:open_file(path, target)
           'The requested source line is not present in this revision'
         )
         local column = location.column or 0
+        local source_line = api.nvim_buf_get_lines(buf, line - 1, line, false)[1]
         if location.encoding == 'utf-16' then
-          column = vim.str_byteindex(api.nvim_buf_get_lines(buf, line - 1, line, false)[1], 'utf-16', column, true)
+          column = vim.str_byteindex(source_line, 'utf-16', column, true)
         end
-        assert(
-          column >= 0 and column <= #api.nvim_buf_get_lines(buf, line - 1, line, false)[1],
-          'The requested source column is invalid'
-        )
+        assert(column >= 0 and column <= #source_line, 'The requested source column is invalid')
         api.nvim_win_set_cursor(win, { line, column })
         api.nvim_win_call(win, function()
           vim.cmd('normal! zvzz')
@@ -940,12 +970,13 @@ function Session:open_file(path, target)
             end
           end)
         end
-        for _, w in pairs({ self.left_win, self.right_win }) do
-          vim.wo[w].wrap = self.wrap ~= false
-        end
         self.search_target = target and target.ranges and vim.tbl_extend('force', { path = path }, target) or nil
         self:paint_annotations(result, { LEFT = left, RIGHT = right })
-        if self.narrow and not (target and target.native) then
+        if
+          self.narrow
+          and not (target and target.native)
+          and column <= (Diff.preview_end(source_line) or math.huge)
+        then
           self:project({ result }, false, location, focus)
         end
         self:emit('FileOpened', self:context())
@@ -1331,7 +1362,9 @@ function Session:comment(opts)
       return
     end
     comment.body = table.concat(api.nvim_buf_get_lines(editor_buf, 0, -1, false), '\n')
-    if single then
+    if single and self.opts.local_base then
+      return
+    elseif single then
       self:call(
         'review.preview',
         { single = true, comment = comment, head = owner.head, number = owner.number, mergeBase = owner.mergeBase },
@@ -1358,7 +1391,7 @@ function Session:comment(opts)
   end
   editor_buf, editor_win, editor_close = self:float(
     vim.split(body, '\n', { plain = true }),
-    t('Write your review') .. ' · #' .. owner.number,
+    self.opts.local_base and t('Local comments') or (t('Write your review') .. ' · #' .. owner.number),
     true,
     function()
       submit(false)
@@ -1409,19 +1442,24 @@ function Session:comment(opts)
         .. comment.path,
       footer = ':write · '
         .. t('Add comment to review')
-        .. '   <LocalLeader>p · '
-        .. t('Post comment')
+        .. (self.opts.local_base and '' or ('   <LocalLeader>p · ' .. t('Post comment')))
         .. '   Esc · '
         .. t('Back'),
     }
   )
   self.inline_editor = { buf = editor_buf, win = editor_win, close = editor_close, submit = submit }
-  self:map(editor_buf, 'n', 'post_comment', function()
-    submit(true)
-  end)
+  if not self.opts.local_base then
+    self:map(editor_buf, 'n', 'post_comment', function()
+      submit(true)
+    end)
+  end
   require('tatara.chrome').refresh(self, true)
 end
 function Session:post_comment()
+  if self.opts.local_base then
+    C.notify(t('Use :write to save a local comment.'))
+    return
+  end
   local editor = self.inline_editor
   if editor and api.nvim_buf_is_valid(editor.buf) and api.nvim_get_current_buf() == editor.buf then
     vim.cmd.stopinsert()

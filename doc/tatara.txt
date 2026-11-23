@@ -39,6 +39,14 @@ use require('tatara').start(opts); open(opts) creates the tab immediately.
 COMMANDS                                                       *:Tatara*
 
 :Tatara                 Open the current branch's PR or choose a PR if absent.
+:Tatara local {base} [--no-worktree]
+                        Compare a saved worktree snapshot to the merge base of
+                        {base} and HEAD. Includes commits and staged, unstaged
+                        and unignored new files. Use --no-worktree for commits
+                        only. No remote is required.
+                        Save inline notes with c and :write. Open :Tatara drafts
+                        to edit notes or press y there to copy feedback for AI.
+                        :Tatara export clipboard copies the same Markdown.
 :Tatara {number}         Open a particular PR in the current repository.
 :Tatara list            Browse detailed PR entries with a separate preview.
 :Tatara demo            Open synthetic data; remote writes are disabled.

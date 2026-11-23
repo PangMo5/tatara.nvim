@@ -17,7 +17,149 @@ end
 local function enum(value, kind)
   return type(value) == 'table' and value[kind] and (value[kind]._0 or value[kind]) or {}
 end
+-- Options that affect the displayed source, its alignment and its chrome.
+local content_options = {
+  'number',
+  'relativenumber',
+  'numberwidth',
+  'signcolumn',
+  'statuscolumn',
+  'winbar',
+  'winhl',
+  'wrap',
+  'linebreak',
+  'breakindent',
+  'showbreak',
+  'smoothscroll',
+  'scrolloff',
+  'sidescrolloff',
+  'diff',
+  'scrollbind',
+  'cursorbind',
+  'cursorline',
+  'foldcolumn',
+  'foldmethod',
+  'foldexpr',
+  'foldlevel',
+  'foldenable',
+  'conceallevel',
+  'concealcursor',
+  'winfixwidth',
+  'winfixheight',
+}
 return function(Session, scratch, replace, valid)
+  function Session:close_content_window(win, force)
+    self.closing_content_win = win
+    local ok, err = pcall(api.nvim_win_close, win, force)
+    self.closing_content_win = nil
+    if not ok then
+      error(err, 0)
+    end
+  end
+
+  function Session:remember_content_window(win)
+    local role = win == self.right_win and 'right_win' or 'left_win'
+    local buf = api.nvim_win_get_buf(win)
+    local options = {}
+    for _, name in ipairs(content_options) do
+      options[name] = vim.wo[win][name]
+    end
+    local state = {
+      buf = buf,
+      width = api.nvim_win_get_width(win),
+      height = api.nvim_win_get_height(win),
+      focused = api.nvim_get_current_win() == win,
+      options = options,
+    }
+    local position = api.nvim_win_call(win, function()
+      return { view = vim.fn.winsaveview(), cwd = vim.fn.haslocaldir() == 1 and vim.fn.getcwd() or nil }
+    end)
+    state.view, state.cwd = position.view, position.cwd
+    -- Keep the existing buffer alive through :close, including review previews
+    -- whose normal lifetime is tied to the window.
+    local bufhidden = vim.bo[buf].bufhidden
+    if bufhidden == 'wipe' or bufhidden == 'delete' or bufhidden == 'unload' then
+      state.bufhidden = bufhidden
+      vim.bo[buf].bufhidden = 'hide'
+    end
+    self.pending_content_windows = self.pending_content_windows or {}
+    self.pending_content_windows[role] = state
+    vim.schedule(function()
+      self:restore_content_windows()
+    end)
+  end
+
+  function Session:restore_content_windows()
+    local pending = self.pending_content_windows
+    if not pending then
+      return
+    end
+    self.pending_content_windows = nil
+    local applying = self.applying_file
+    self.applying_file = true
+    local focus
+    local tab_valid = not self.closed and api.nvim_tabpage_is_valid(self.tab)
+    local lost_both = not valid(self.right_win) and not valid(self.left_win)
+    local narrow = vim.o.columns < C.get().layout.stacked_below
+    for _, role in ipairs({ 'right_win', 'left_win' }) do
+      local state = pending[role]
+      if state and api.nvim_buf_is_valid(state.buf) then
+        if tab_valid and not valid(self[role]) then
+          local opposite = role == 'right_win' and self.left_win or self.right_win
+          local reference = valid(opposite) and opposite
+            or (valid(self.files_win) and self.files_win)
+            or (valid(self.summary_win) and self.summary_win)
+            or vim.iter(api.nvim_tabpage_list_wins(self.tab)):find(function(win)
+              return api.nvim_win_get_config(win).relative == ''
+            end)
+          local preceding = role == 'left_win'
+          local split = narrow and (preceding and 'above' or 'below') or (preceding and 'left' or 'right')
+          local settings = { split = split, win = reference }
+          settings[narrow and 'height' or 'width'] = narrow and state.height or state.width
+          local win = api.nvim_open_win(state.buf, false, settings)
+          self[role] = win
+          for _, name in ipairs(content_options) do
+            vim.wo[win][name] = state.options[name]
+          end
+          if state.cwd then
+            api.nvim_win_call(win, function()
+              vim.cmd.lcd({ args = { state.cwd } })
+            end)
+          end
+          if state.focused then
+            focus = win
+          end
+        end
+        if state.bufhidden then
+          vim.bo[state.buf].bufhidden = state.bufhidden
+        end
+      end
+    end
+    if tab_valid then
+      if lost_both and valid(self.files_win) then
+        self.narrow = nil
+      end
+      self:layout()
+      local buffers = self.mode == 'diff' and self.current_buffers
+        or (self.projection_paired and (self.mode == 'combined' or self.mode == 'unified') and self.projection_buffers)
+      if buffers then
+        D.reflow(buffers, { self.left_win, self.right_win })
+      end
+      for role, state in pairs(pending) do
+        local win = self[role]
+        if valid(win) and api.nvim_win_get_buf(win) == state.buf then
+          api.nvim_win_call(win, function()
+            vim.fn.winrestview(state.view)
+          end)
+        end
+      end
+      if focus and api.nvim_get_current_tabpage() == self.tab then
+        api.nvim_set_current_win(focus)
+      end
+      self:update_sticky()
+    end
+    self.applying_file = applying
+  end
   function Session:revision()
     return self.detail and known(self.detail.revision) and self.detail.revision or { head = '', mergeBase = '' }
   end
@@ -89,6 +231,22 @@ return function(Session, scratch, replace, valid)
     end
   end
   function Session:summary_lines(item, detail)
+    if self.opts.local_base then
+      local comparison = enum(detail.metadata, 'localComparison')
+      local revision = detail.revision
+      local head = known(comparison.worktreeParent) and t('Worktree snapshot') or comparison.head
+      local adds, deletes = 0, 0
+      for _, file in ipairs(detail.files) do
+        adds = adds + file.additions
+        deletes = deletes + file.deletions
+      end
+      return {
+        item.title,
+        head .. ' ' .. revision.head:sub(1, 8) .. ' → ' .. comparison.base,
+        t('Files') .. ' ' .. #detail.files .. ' · +' .. adds .. ' −' .. deletes,
+        t('Local comments') .. ' ' .. #self.draft,
+      }
+    end
     local info = known(item.github) and item.github or {}
     local metadata = detail and enum(detail.metadata, 'github') or {}
     local state = item.isDraft and 'Draft'
@@ -230,9 +388,8 @@ return function(Session, scratch, replace, valid)
       replace(self.summary_buf, self:summary_lines(self.detail.item, self.detail))
       require('tatara.presentation').summary(self.summary_buf, self.detail.item)
       vim.wo[self.summary_win].winbar = ' '
-        .. t(self.detail.item.kind == 'issue' and 'Current issue' or 'Current pull request')
-        .. ' · #'
-        .. self.detail.item.id.number
+        .. self:summary_title()
+        .. (self.opts.local_base and '' or (' · #' .. self.detail.item.id.number))
     end
     local lines, nodes, seen = {}, {}, {}
     lines[#lines + 1] = '▾ /'
@@ -415,7 +572,7 @@ return function(Session, scratch, replace, valid)
     self:document(lines, 'overview')
   end
   function Session:checks()
-    if not self.detail then
+    if not self.detail or self.opts.local_base then
       return
     end
     local metadata = enum(self.detail.metadata, 'github')
@@ -450,7 +607,7 @@ return function(Session, scratch, replace, valid)
       .. ' · #'
       .. self.detail.item.id.number
     if valid(self.left_win) then
-      api.nvim_win_close(self.left_win, true)
+      self:close_content_window(self.left_win, true)
       self.left_win = nil
     end
     self.mode = mode
@@ -525,7 +682,7 @@ return function(Session, scratch, replace, valid)
       self:paint_projection_notes(buf, doc)
     end
     if not paired and valid(self.left_win) then
-      api.nvim_win_close(self.left_win, true)
+      self:close_content_window(self.left_win, true)
       self.left_win = nil
     end
     self.mode = combined and 'combined' or 'unified'
@@ -558,7 +715,11 @@ return function(Session, scratch, replace, valid)
       local location = doc.locations[first]
       column = target.column or 0
       if target.encoding == 'utf-16' then
-        column = vim.str_byteindex(doc.lines[first]:sub(location.offset + 1), 'utf-16', column, true)
+        column =
+          vim.str_byteindex(doc.lines[first]:sub(location.offset + 1), 'utf-16', column, not location.preview_bytes)
+      end
+      if location.preview_bytes then
+        column = math.min(column, location.preview_bytes)
       end
       column = location.offset + column
     end
@@ -731,16 +892,35 @@ return function(Session, scratch, replace, valid)
       self:combined(false, self.preview_directory)
     end
   end
+  function Session:summary_title()
+    if self.opts.local_base then
+      return t('Local review')
+    end
+    local issue = self.detail and self.detail.item.kind == 'issue'
+    return t(issue and 'Current issue' or 'Current pull request')
+  end
+  function Session:views()
+    if self.opts.local_base then
+      return { { 'overview', 'Overview' }, { 'diff', 'Diff' }, { 'discussion', 'Local comments' } }
+    end
+    return { { 'overview', 'Overview' }, { 'diff', 'Diff' }, { 'discussion', 'Discussion' }, { 'checks', 'Checks' } }
+  end
+  function Session:current_view()
+    if self.mode == 'combined' or self.mode == 'unified' or self.mode == 'source' then
+      return 'diff'
+    end
+    return self.opts.local_base and self.mode == 'review' and 'discussion' or self.mode
+  end
   function Session:cycle_view(delta)
-    local views = { 'overview', 'diff', 'discussion', 'checks' }
-    local current = (self.mode == 'combined' or self.mode == 'unified') and 'diff' or self.mode
+    local views = self:views()
+    local current = self:current_view()
     local index = 1
     for i, view in ipairs(views) do
-      if view == current then
+      if view[1] == current then
         index = i
       end
     end
-    local selected = views[(index - 1 + delta) % #views + 1]
+    local selected = views[(index - 1 + delta) % #views + 1][1]
     if selected == 'diff' then
       self:diff_view()
     else
@@ -763,7 +943,11 @@ return function(Session, scratch, replace, valid)
       C.notify(t('Submitting…'))
       return
     end
-    local old = self:revision().head
+    if self.opts.local_base and (self.form or (self.inline_editor and valid(self.inline_editor.win))) then
+      C.notify(t('Close the comment editor before refreshing.'), vim.log.levels.WARN)
+      return
+    end
+    local old = self:revision()
     local mode, path = self.mode, self.path
     local source = self:source_at_cursor()
     local line = source and (source.line or api.nvim_win_get_cursor(0)[1])
@@ -771,8 +955,8 @@ return function(Session, scratch, replace, valid)
       self.detail = detail
       self.draft = detail.drafts or {}
       self:apply_review_state(detail.reviewState)
-      if old ~= self:revision().head then
-        self.draft = {}
+      local same_revision = old.head == self:revision().head and old.mergeBase == self:revision().mergeBase
+      if not same_revision then
         self.composer_drafts = {}
       end
       self:render_files()
@@ -781,7 +965,14 @@ return function(Session, scratch, replace, valid)
       elseif mode == 'checks' then
         self:checks()
       elseif path and (mode == 'diff' or mode == 'unified') then
-        self:open_file(path, old == self:revision().head and source and { line = line, side = source.side } or nil)
+        if vim.iter(detail.files):any(function(file)
+          return file.path == path
+        end) then
+          self:open_file(path, same_revision and source and { line = line, side = source.side } or nil)
+        else
+          self.path = nil
+          self:combined()
+        end
       else
         self:overview()
       end
@@ -789,12 +980,20 @@ return function(Session, scratch, replace, valid)
     end)
   end
   function Session:browser()
-    if self.detail then
+    if self.detail and not self.opts.local_base then
       vim.ui.open(self.detail.item.url)
     end
   end
   function Session:help()
-    local lines = { '# Tatara', '', ':Tatara · ' .. t('Select a pull request'), '' }
+    local lines = self.opts.local_base
+        and {
+          '# Tatara',
+          '',
+          t('Usage: :Tatara local <base> [--no-worktree]'),
+          ':Tatara export clipboard · ' .. t('Copy review for AI'),
+          '',
+        }
+      or { '# Tatara', '', ':Tatara · ' .. t('Select a pull request'), '' }
     for action, key in pairs(C.get().keymaps) do
       if key then
         lines[#lines + 1] = key .. '  ' .. action

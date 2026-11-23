@@ -173,7 +173,7 @@ function M.pulls(session, items)
   })
   session:cancel(pending)
   if chosen and not session.closed and version == session.list_generation then
-    session:open_pr(chosen.id.number, chosen.kind)
+    session:open_item(chosen.id.number, chosen.kind)
   end
 end
 function M.files(session)

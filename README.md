@@ -53,6 +53,10 @@ cd /path/to/repository
 tatara
 # Open a particular PR in this repository.
 tatara --number 123
+# Review commits and saved worktree changes before pushing.
+tatara --local-base origin/main
+# Review committed changes only.
+tatara --local-base origin/main --no-worktree
 # Synthetic data; no forge writes.
 tatara --demo
 # Detailed repository selector, including additional pages and forge queries.
@@ -64,13 +68,23 @@ tatara --language ko --files-view list --sidebar-width 40 --wrap off
 
 With any installation method, `nvim -c Tatara` opens the current branch's PR or the repository's PR selector when the branch has no PR. Use `:Tatara 123` to open a specified PR and `:Tatara list` or `:Tatara issues` for detailed selectors with search, filters, presets and pagination. Ctrl-p is the quick switcher. Startup commands wait for `VimEnter` callbacks so session restoration runs before the review tab opens.
 
+### Local reviews
+
+Run `:Tatara local origin/main` inside a Git checkout to compare the saved worktree against the merge base of `origin/main` and `HEAD`. The diff includes commits, staged and unstaged edits, and unignored new files. Pass any local Git revision as the base. The comparison uses locally available objects and works without a remote or GitHub authentication.
+
+If staged and unstaged edits overlap, the snapshot shows the saved file as it exists on disk under Git's normal clean rules. Save any Neovim buffers that should be included. Tatara captures an immutable Git snapshot using a temporary index and leaves the original files, staging and branch refs intact. Use `:Tatara refresh` to capture the latest contents. Add `--no-worktree` to compare committed changes through `HEAD` only.
+
+Use `c` on a source line or visual range and `:write` to save a local comment. `:Tatara drafts` opens the saved comments and an editable summary. Press `y` in the comments pane or use `:Tatara export clipboard` to copy Markdown for a coding agent. The export includes both commit IDs and the exact source path, side and line range, including the old path for a comment on a renamed file. `:Tatara export markdown` opens it in a buffer and `:Tatara export json` opens structured data. Tatara saves the comments locally and restores them when you reopen the same commit pair.
+
 ## Native editor behavior
 
 - Files, the PR overview and the two diff sides are real Neovim windows. Use your normal window navigation; Tatara installs no global navigation mappings.
+- Closing a review's content split restores it with the same buffer and view. Resize the splits with Neovim's window commands or use `:Tatara close` to close the review.
 - Difftastic owns structural alignment and changed-token emphasis by default. Native extmarks, virtual filler and folds display that alignment in immutable file buffers; the line-diff engine does not replace it. Set `diff = { engine = 'native' }` to explicitly choose Neovim's diff engine.
 - The root opens a combined structural diff. Narrow file views show both source sides in a unified projection. Every source row retains its immutable path, side and line for comments; Enter opens the corresponding ordinary file buffer for your configured LSP. Projections are derived review views and are not attached to a language server as fictitious files.
 - The PR summary stays above Files, with semantic colors for status, branches, directories and change counts. Moving the Files cursor previews that file or directory without moving focus; Enter opens the true source buffer. Paths stick in the content winbar. Switch Overview/Diff/Discussion/Checks with `g[` / `g]`, clickable headings, or `<LocalLeader>1` / `2` / `3` / `4`.
 - The head source uses a real, detached immutable worktree path. Existing FileType, BufRead, LspAttach, Tree-sitter and diagnostic configuration continue to work normally. Base sources use their own immutable worktree paths too; neither revision starts a Tatara-owned language server.
+- Diff previews abbreviate very long lines with an ellipsis. Press Enter to open the complete source line. Files with very long lines initially open without wrapping, and `gw` can toggle wrapping in the source view.
 - Native `/`, `n`/`N`, motions, folds and jumplist behavior remain Neovim's responsibility in source buffers. Files `/` opens a path picker, and `g/` searches immutable PR contents.
 - With MiniPick already configured, Files `/` uses its existing layout, mappings and preview UI with asynchronous FFF ranking and exact Unicode match highlights. Other editors use their standard UI provider; a custom `picker` can implement the same cancellable query contract. Content search offers plain text, regex and fuzzy modes.
 - Initial source focus goes to the first changed line; exact content-search targets take priority.

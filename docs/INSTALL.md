@@ -6,7 +6,7 @@ Tatara builds a local macOS backend from the same source checkout as its Neovim 
 
 - Current Neovim nightly (0.13+) and macOS 15 or newer.
 - Xcode 27.2 with Swift 6.4.2 and the macOS 27.2 SDK. Select Xcode with `xcode-select` or set `DEVELOPER_DIR` in the environment that launches Neovim or runs the build.
-- `git`, GitHub CLI (`gh`), and Difftastic (`difft`) visible to Neovim. Run `gh auth login` for the host you review.
+- Git and Difftastic (`difft`) visible to Neovim. Local reviews require Git 2.45 or later. For GitHub reviews, install GitHub CLI (`gh`) and run `gh auth login` for the host you review.
 
 Check the tools before installation.
 

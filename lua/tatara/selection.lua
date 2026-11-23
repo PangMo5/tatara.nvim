@@ -10,7 +10,7 @@ return function(Session, scratch, replace, valid)
       replace(self.files_buf, vim.split(message, '\n', { plain = true }))
     end
   end
-  function Session:open_pr(number, kind)
+  function Session:open_item(number, kind)
     if self.writing then
       C.notify(t('Submitting…'))
       return
@@ -41,7 +41,7 @@ return function(Session, scratch, replace, valid)
         api.nvim_win_set_cursor(self.files_win, { self.root_row, 0 })
       end
       self:overview()
-      if detail.item.kind == 'pullRequest' and #detail.files > 0 and C.get().initial_view == 'diff' then
+      if detail.item.kind ~= 'issue' and #detail.files > 0 and C.get().initial_view == 'diff' then
         self:combined(true)
       end
       self:emit('Ready', self:context())
@@ -99,7 +99,7 @@ return function(Session, scratch, replace, valid)
         self.summary_win = nil
       end
       if valid(self.left_win) then
-        api.nvim_win_close(self.left_win, true)
+        self:close_content_window(self.left_win, true)
         self.left_win = nil
       end
       self.list_buf = self.list_buf or scratch('tatara://' .. self.id .. '/pull-requests', 'tatara')
@@ -157,7 +157,7 @@ return function(Session, scratch, replace, valid)
       self:map(self.list_buf, 'n', 'open', function()
         local item = self.item_rows[api.nvim_win_get_cursor(0)[1]]
         if item then
-          self:open_pr(item.id.number, item.kind)
+          self:open_item(item.id.number, item.kind)
         end
       end)
       self:map(self.list_buf, 'n', 'more', function()

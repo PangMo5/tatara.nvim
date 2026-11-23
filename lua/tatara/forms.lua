@@ -50,7 +50,7 @@ function M.open(s, kind, title, body, key, save)
   local origin = M.origin(s)
   s:cancel_files()
   if valid(s.left_win) then
-    api.nvim_win_close(s.left_win, true)
+    s:close_content_window(s.left_win, true)
     s.left_win = nil
   end
   local buf = api.nvim_create_buf(false, true)
@@ -176,7 +176,7 @@ function M.preview(s, lines, title, on_back)
     M.suspend(s)
   end
   if valid(s.left_win) then
-    api.nvim_win_close(s.left_win, true)
+    s:close_content_window(s.left_win, true)
     s.left_win = nil
   end
   local buf = api.nvim_create_buf(false, true)

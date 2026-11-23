@@ -7,6 +7,7 @@ local ns = api.nvim_create_namespace('tatara.structural-diff')
 local gap_ns = api.nvim_create_namespace('tatara.structural-alignment')
 local plans = {}
 local documents, folds = {}, {}
+local long_line_bytes, preview_bytes = 4096, 512
 function M.document(buf)
   return documents[buf]
 end
@@ -50,19 +51,22 @@ function M.group(span)
     .. (span.role == 'added' and 'Added' or 'Removed')
     .. (span.highlight == 'comment' and 'Comment' or (span.bold and 'Bold' or ''))
 end
-local function paint(buf, row, offset, spans)
+local function paint(buf, row, offset, spans, preview)
   local column = offset
   local signed = false
-  local text = api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ''
+  local limit = preview and (offset + preview) or #(api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or '')
   for _, span in ipairs(spans) do
+    if column >= limit then
+      break
+    end
     local finish, group = column + #span.text, M.group(span)
-    if group and finish > column and column < #text then
+    if group and finish > column then
       api.nvim_buf_set_extmark(
         buf,
         ns,
         row,
         column,
-        { end_col = math.min(finish, #text), hl_group = group, priority = 150, hl_mode = 'combine' }
+        { end_col = math.min(finish, limit), hl_group = group, priority = 150, hl_mode = 'combine' }
       )
       if not signed then
         api.nvim_buf_set_extmark(
@@ -77,6 +81,33 @@ local function paint(buf, row, offset, spans)
     end
     column = finish
   end
+end
+function M.has_long_lines(text)
+  if type(text) ~= 'string' or #text <= long_line_bytes then
+    return false
+  end
+  local start = 1
+  while true do
+    local finish = text:find('\n', start, true) or #text + 1
+    if finish - start > long_line_bytes then
+      return true
+    end
+    if finish > #text then
+      return false
+    end
+    start = finish + 1
+  end
+end
+function M.preview_end(line)
+  if #line <= long_line_bytes then
+    return nil
+  end
+  local cut = preview_bytes
+  -- Keep the prefix on a UTF-8 character boundary.
+  while line:byte(cut + 1) >= 128 and line:byte(cut + 1) < 192 do
+    cut = cut - 1
+  end
+  return cut
 end
 function M.clear(buf)
   if buf and api.nvim_buf_is_valid(buf) then
@@ -133,7 +164,6 @@ function M.apply(result, buffers, windows)
   plans[buffers.RIGHT] = { rows = rows, buffers = buffers, windows = windows }
   for _, win in ipairs(windows) do
     vim.wo[win].diff = false
-    vim.wo[win].wrap = true
     vim.wo[win].scrollbind = true
     vim.wo[win].foldmethod = 'manual'
     api.nvim_win_call(win, function()
@@ -348,11 +378,18 @@ function M.projection(results, side_filter)
               for _, span in ipairs(line.spans) do
                 text[#text + 1] = span.text
               end
-              append(prefix .. table.concat(text), {
+              local display = table.concat(text)
+              local preview = M.preview_end(display)
+              if preview then
+                -- The row still points to its complete line in the immutable file.
+                display = display:sub(1, preview) .. '…'
+              end
+              append(prefix .. display, {
                 path = result.path,
                 line = line.number,
                 side = side,
                 offset = #prefix,
+                preview_bytes = preview,
                 alternate = not side_filter and shared and { side = 'LEFT', line = l.number } or nil,
               }, line.spans)
             end
@@ -430,7 +467,8 @@ function M.paint_projection(buf, document)
   M.clear(buf)
   documents[buf] = document
   for row, spans in pairs(document.spans) do
-    paint(buf, row - 1, document.locations[row].offset, spans)
+    local location = document.locations[row]
+    paint(buf, row - 1, location.offset, spans, location.preview_bytes)
   end
   for row in pairs(document.headers) do
     api.nvim_buf_set_extmark(buf, ns, row - 1, 0, { line_hl_group = 'TataraPath' })
